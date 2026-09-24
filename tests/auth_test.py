@@ -53,7 +53,7 @@ class ClientFromLoginFlowTest(unittest.TestCase):
         mock_webbrowser_get.return_value = controller
         controller.open.side_effect = \
                 lambda auth_url: requests.get(
-                        'https://127.0.0.1:6969/callback', verify=False)
+                        'https://127.0.0.1:6969/callback?code=auth-code', verify=False)
 
         client.return_value = 'returned client'
 
@@ -87,7 +87,7 @@ class ClientFromLoginFlowTest(unittest.TestCase):
         mock_webbrowser_get.return_value = controller
         controller.open.side_effect = \
                 lambda auth_url: requests.get(
-                        'https://127.0.0.1:6969/callback', verify=False)
+                        'https://127.0.0.1:6969/callback?code=auth-code', verify=False)
 
         auth.client_from_login_flow(
                 API_KEY, APP_SECRET, callback_url, self.token_path,
@@ -117,7 +117,7 @@ class ClientFromLoginFlowTest(unittest.TestCase):
         mock_webbrowser_get.return_value = controller
         controller.open.side_effect = \
                lambda auth_url: requests.get(
-                        'https://127.0.0.1:6969/callback', verify=False)
+                        'https://127.0.0.1:6969/callback?code=auth-code', verify=False)
 
         client.return_value = 'returned client'
 
@@ -154,7 +154,7 @@ class ClientFromLoginFlowTest(unittest.TestCase):
         mock_webbrowser_get.return_value = controller
         controller.open.side_effect = \
                lambda auth_url: requests.get(
-                        'https://127.0.0.1:6969/', verify=False)
+                        'https://127.0.0.1:6969/?code=auth-code', verify=False)
 
         client.return_value = 'returned client'
 
@@ -631,7 +631,7 @@ class ClientFromReceivedUrl(unittest.TestCase):
         token_capture = []
         auth.client_from_received_url(
                 API_KEY, APP_SECRET, auth_context, 
-                'http://redirect.url.com/?data',
+                'http://redirect.url.com/?code=auth-code&session=x',
                 lambda token: token_capture.append(token))
 
         client.assert_called_once()
@@ -643,7 +643,8 @@ class ClientFromReceivedUrl(unittest.TestCase):
                 authorization_response=_,
                 client_id=_,
                 auth=_,
-                state='oauth state')
+                state='oauth state',
+                grant_type='authorization_code')
 
         # Verify that the returned session can refresh itself when the access
         # token expires: without token_endpoint, authlib's ensure_active_token
@@ -684,7 +685,7 @@ class ClientFromReceivedUrl(unittest.TestCase):
         token_capture = []
         auth.client_from_received_url(
                 API_KEY, APP_SECRET, auth_context, 
-                'http://redirect.url.com/?data',
+                'http://redirect.url.com/?code=auth-code&session=x',
                 lambda token: token_capture.append(token),
                 asyncio=True)
 
@@ -697,7 +698,8 @@ class ClientFromReceivedUrl(unittest.TestCase):
                 authorization_response=_,
                 client_id=_,
                 auth=_,
-                state='oauth state')
+                state='oauth state',
+                grant_type='authorization_code')
 
         # Verify that the returned session can refresh itself when the access
         # token expires (see the sync variant above).
@@ -713,6 +715,60 @@ class ClientFromReceivedUrl(unittest.TestCase):
                 'creation_timestamp': MOCK_NOW,
                 'token': self.raw_token
             }], token_capture)
+
+
+class CheckReceivedUrlTest(unittest.TestCase):
+
+    def setUp(self):
+        self.auth_context = auth.AuthContext(
+                CALLBACK_URL, 'https://auth.url.com', 'oauth state')
+
+    @no_duplicates
+    @patch('schwab.auth.OAuth2Client', new_callable=MockOAuthClient)
+    def test_url_without_code(self, sync_session):
+        sync_session.return_value = sync_session
+
+        with self.assertRaisesRegex(auth.InvalidRedirectURLError,
+                                    'does not contain an authorization code'):
+            auth.client_from_received_url(
+                    API_KEY, APP_SECRET, self.auth_context,
+                    'https://redirect.url.com/?session=x', lambda t: None)
+
+        sync_session.fetch_token.assert_not_called()
+
+    @no_duplicates
+    @patch('schwab.auth.OAuth2Client', new_callable=MockOAuthClient)
+    def test_url_with_error(self, sync_session):
+        sync_session.return_value = sync_session
+
+        with self.assertRaisesRegex(auth.InvalidRedirectURLError,
+                                    'access_denied.*user said no'):
+            auth.client_from_received_url(
+                    API_KEY, APP_SECRET, self.auth_context,
+                    'https://redirect.url.com/?error=access_denied' +
+                    '&error_description=user+said+no', lambda t: None)
+
+        sync_session.fetch_token.assert_not_called()
+
+    @no_duplicates
+    def test_invalid_redirect_url_error_is_value_error(self):
+        self.assertTrue(issubclass(auth.InvalidRedirectURLError, ValueError))
+
+    @no_duplicates
+    @patch('schwab.auth.Client')
+    @patch('schwab.auth.OAuth2Client', new_callable=MockOAuthClient)
+    @patch('time.time', MagicMock(return_value=MOCK_NOW))
+    def test_warns_when_no_refresh_token(self, sync_session, client):
+        sync_session.return_value = sync_session
+        sync_session.fetch_token.return_value = {'access_token': 'a'}
+
+        with self.assertLogs('schwab.auth', level='WARNING') as logs:
+            auth.client_from_received_url(
+                    API_KEY, APP_SECRET, self.auth_context,
+                    'https://redirect.url.com/?code=auth-code',
+                    lambda t: None)
+
+        self.assertIn('did not return a refresh token', logs.output[0])
 
 
 class ClientFromManualFlow(unittest.TestCase):
@@ -737,7 +793,7 @@ class ClientFromManualFlow(unittest.TestCase):
         sync_session.fetch_token.return_value = self.raw_token
 
         client.return_value = 'returned client'
-        prompt_func.return_value = 'http://redirect.url.com/?data'
+        prompt_func.return_value = 'http://redirect.url.com/?code=auth-code&session=x'
 
         self.assertEqual('returned client',
                          auth.client_from_manual_flow(
@@ -764,7 +820,7 @@ class ClientFromManualFlow(unittest.TestCase):
         sync_session.fetch_token.return_value = self.raw_token
 
         client.return_value = 'returned client'
-        prompt_func.return_value = 'http://redirect.url.com/?data'
+        prompt_func.return_value = 'http://redirect.url.com/?code=auth-code&session=x'
 
         token_writes = []
 
@@ -804,7 +860,7 @@ class ClientFromManualFlow(unittest.TestCase):
         sync_session.fetch_token.return_value = self.raw_token
 
         client.return_value = 'returned client'
-        prompt_func.return_value = 'http://redirect.url.com/?data'
+        prompt_func.return_value = 'http://redirect.url.com/?code=auth-code&session=x'
 
         self.assertEqual('returned client',
                          auth.client_from_manual_flow(
@@ -833,7 +889,7 @@ class ClientFromManualFlow(unittest.TestCase):
         sync_session.fetch_token.return_value = self.raw_token
 
         client.return_value = 'returned client'
-        prompt_func.return_value = 'http://redirect.url.com/?data'
+        prompt_func.return_value = 'http://redirect.url.com/?code=auth-code&session=x'
 
         self.assertEqual('returned client',
                          auth.client_from_manual_flow(
@@ -858,7 +914,7 @@ class ClientFromManualFlow(unittest.TestCase):
         sync_session.fetch_token.return_value = self.raw_token
 
         client.return_value = 'returned client'
-        prompt_func.return_value = 'http://redirect.url.com/?data'
+        prompt_func.return_value = 'http://redirect.url.com/?code=auth-code&session=x'
 
         self.assertEqual('returned client',
                          auth.client_from_manual_flow(

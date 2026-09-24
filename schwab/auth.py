@@ -12,7 +12,7 @@ import queue
 import sys
 import tempfile
 import time
-import urllib
+import urllib.parse
 import urllib3
 import warnings
 import webbrowser
@@ -647,6 +647,32 @@ def get_auth_context(api_key, callback_url, state=None):
     return AuthContext(callback_url, authorization_url, state)
 
 
+class InvalidRedirectURLError(ValueError):
+    '''
+    Raised when the URL received at the end of the login flow does not contain
+    an authorization code.
+    '''
+    pass
+
+
+def __check_received_url(received_url):
+    query = urllib.parse.parse_qs(urllib.parse.urlparse(received_url).query)
+
+    if 'error' in query:
+        raise InvalidRedirectURLError(
+                'Login failed with error \'{}\': {}'.format(
+                    query['error'][0],
+                    query.get('error_description', ['no description'])[0]))
+
+    if 'code' not in query:
+        raise InvalidRedirectURLError(
+                'The received URL does not contain an authorization code. Make '
+                'sure you copied the entire URL of the page you were '
+                'redirected to after logging in, which should start with '
+                'your callback URL and contain "code=". Received: {}'.format(
+                    received_url))
+
+
 def client_from_received_url(
         api_key, app_secret, auth_context, received_url, token_write_func,
         asyncio=False, enforce_enums=True):
@@ -655,11 +681,22 @@ def client_from_received_url(
     #      Instead, we reconstruct it here.
     oauth = OAuth2Client(api_key, redirect_uri=auth_context.callback_url)
 
+    __check_received_url(received_url)
+
+    # Pin the grant type. Otherwise, authlib guesses it from the received URL
+    # and silently falls back to the client_credentials grant if the URL has no
+    # code, which yields a short-lived token with no refresh token.
     token = oauth.fetch_token(
         TOKEN_ENDPOINT,
         authorization_response=received_url,
         client_id=api_key, auth=(api_key, app_secret),
-        state=auth_context.state)
+        state=auth_context.state,
+        grant_type='authorization_code')
+
+    if 'refresh_token' not in token:
+        get_logger().warning(
+                'Schwab did not return a refresh token. This client will stop '
+                'working when its access token expires, usually in 30 minutes.')
 
     # Don't emit token details in debug logs
     register_redactions(token)
