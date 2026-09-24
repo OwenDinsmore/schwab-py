@@ -251,6 +251,34 @@ class _TestClient:
 
 
     @patch('schwab.client.base.datetime.datetime', mockdatetime)
+    def test_get_orders_for_account_timezone_aware_converted_to_utc(self):
+        eastern = datetime.timezone(datetime.timedelta(hours=-4))
+        self.client.get_orders_for_account(
+                ACCOUNT_HASH,
+                from_entered_datetime=datetime.datetime(
+                    2024, 6, 5, 22, 3, 2, tzinfo=eastern),
+                to_entered_datetime=datetime.datetime(
+                    2024, 6, 6, 10, 0, 0, tzinfo=eastern))
+        self.mock_session.get.assert_called_once_with(
+            self.make_url('/trader/v1/accounts/{accountHash}/orders'), params={
+                'fromEnteredTime': '2024-06-06T02:03:02Z',
+                'toEnteredTime': '2024-06-06T14:00:00Z',
+            })
+
+
+    @patch('schwab.client.base.datetime.datetime', mockdatetime)
+    def test_get_orders_for_account_utc_datetime_unchanged(self):
+        self.client.get_orders_for_account(
+                ACCOUNT_HASH, from_entered_datetime=datetime.datetime(
+                    2024, 6, 5, 4, 3, 2, tzinfo=datetime.timezone.utc))
+        self.mock_session.get.assert_called_once_with(
+            self.make_url('/trader/v1/accounts/{accountHash}/orders'), params={
+                'fromEnteredTime': '2024-06-05T04:03:02Z',
+                'toEnteredTime': NOW_DATETIME_ISO,
+            })
+
+
+    @patch('schwab.client.base.datetime.datetime', mockdatetime)
     def test_get_orders_for_account_from_entered_datetime(self):
         self.client.get_orders_for_account(
                 ACCOUNT_HASH, from_entered_datetime=datetime.datetime(

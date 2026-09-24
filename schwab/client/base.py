@@ -83,11 +83,15 @@ class BaseClient(EnumEnforcer):
             raise ValueError(error_str)
 
     def _format_date_as_iso(self, var_name, dt):
-        '''Formats datetime or date objects as yyyy-MM-dd'T'HH:mm:ss.SSSZ'''
+        '''Formats datetime or date objects as yyyy-MM-dd'T'HH:mm:ss.SSSZ.
+        Timezone-aware datetimes are converted to UTC. Naive datetimes and dates
+        are assumed to already be in UTC.'''
         self._assert_type(var_name, dt, [self._DATE, self._DATETIME])
 
         if not isinstance(dt, self._DATETIME):
             dt = datetime.datetime(year=dt.year, month=dt.month, day=dt.day)
+        elif dt.tzinfo is not None and dt.utcoffset() is not None:
+            dt = dt.astimezone(datetime.timezone.utc)
 
         return dt.strftime('%Y-%m-%dT%H:%M:%SZ')
 
@@ -262,13 +266,15 @@ class BaseClient(EnumEnforcer):
                                       this time should be returned. Date must
                                       be within 60 days from today's date.
                                       ``toEnteredTime`` must also be set.
+                                      Timezone-aware datetimes are converted
+                                      to UTC; naive ones are treated as UTC.
         :param to_entered_datetime: Specifies that no orders entered after this
                                     time should be returned. ``fromEnteredTime``
                                     must also be set.
         :param status: Restrict query to orders with this status. See
-                       :class:`Order.Status` for options.
-        :param statuses: Restrict query to orders with any of these statuses.
-                         See :class:`Order.Status` for options.
+                       :class:`Order.Status` for options. Schwab accepts only
+                       a single status; to fetch orders in several statuses,
+                       make one call per status or filter the results.
         '''
         path = '/trader/v1/accounts/{}/orders'.format(account_hash)
         return self._get_request(path, self._make_order_query(
@@ -291,11 +297,14 @@ class BaseClient(EnumEnforcer):
                                       this time should be returned. Date must
                                       be within 60 days from today's date.
                                       ``toEnteredTime`` must also be set.
+                                      Timezone-aware datetimes are converted
+                                      to UTC; naive ones are treated as UTC.
         :param to_entered_datetime: Specifies that no orders entered after this
                                     time should be returned. ``fromEnteredTime``
                                     must also be set.
         :param status: Restrict query to orders with this status. See
-                       :class:`Order.Status` for options.
+                       :class:`Order.Status` for options. Schwab accepts only
+                       a single status.
         '''
         path = '/trader/v1/orders'
         return self._get_request(path, self._make_order_query(
