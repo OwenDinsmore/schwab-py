@@ -117,6 +117,61 @@ class ConstructRepeatOrderTest(unittest.TestCase):
         }, repeat_order)
 
 
+    def test_trailing_stop_limit_order(self):
+        historical_order = {
+            "session": "NORMAL",
+            "duration": "DAY",
+            "orderType": "TRAILING_STOP_LIMIT",
+            "complexOrderStrategyType": "NONE",
+            "quantity": 10.0,
+            "stopPriceLinkBasis": "BID",
+            "stopPriceLinkType": "VALUE",
+            "stopPriceOffset": 1.5,
+            "priceLinkBasis": "LAST",
+            "priceLinkType": "VALUE",
+            "priceOffset": 0.25,
+            "orderLegCollection": [
+                {
+                    "orderLegType": "EQUITY",
+                    "legId": 1,
+                    "instrument": {
+                        "assetType": "EQUITY",
+                        "symbol": "FAKE"
+                    },
+                    "instruction": "SELL",
+                    "quantity": 10.0
+                }
+            ],
+            "orderStrategyType": "SINGLE",
+            "status": "WORKING",
+        }
+
+        repeat_order = construct_repeat_order(historical_order)
+
+        self.assertBuilder({
+            'session': 'NORMAL',
+            'duration': 'DAY',
+            'orderType': 'TRAILING_STOP_LIMIT',
+            'complexOrderStrategyType': 'NONE',
+            'quantity': 10.0,
+            'stopPriceLinkBasis': 'BID',
+            'stopPriceLinkType': 'VALUE',
+            'stopPriceOffset': 1.5,
+            'priceLinkBasis': 'LAST',
+            'priceLinkType': 'VALUE',
+            'priceOffset': 0.25,
+            'orderStrategyType': 'SINGLE',
+            'orderLegCollection': [{
+                'instruction': 'SELL',
+                'instrument': {
+                    'assetType': 'EQUITY',
+                    'symbol': 'FAKE'
+                },
+                'quantity': 10.0
+            }]
+        }, repeat_order)
+
+
     def test_missing_orderStrategyType(self):
         historical_order = json.loads('''{
             "session": "NORMAL",

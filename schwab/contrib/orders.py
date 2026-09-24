@@ -57,6 +57,7 @@ _FIELDS_AND_SETTERS = (
         schwab.orders.common.PriceLinkBasis),
     ('priceLinkType', 'set_price_link_type',
         schwab.orders.common.PriceLinkType),
+    ('priceOffset', 'set_price_offset', None),
     ('price', 'copy_price', None),
     ('activationPrice', 'set_activation_price', None),
     ('specialInstruction', 'set_special_instruction',

@@ -315,10 +315,17 @@ class OrderBuilder(EnumEnforcer):
         return self
 
     def set_price_offset(self, price_offset):
+        '''
+        Set the price offset. Used with ``TRAILING_STOP_LIMIT`` orders to
+        determine the limit price relative to the trailing stop price.
+        '''
         self._priceOffset = price_offset
         return self
 
     def clear_price_offset(self):
+        '''
+        Clear the price offset.
+        '''
         self._priceOffset = None
         return self
 
