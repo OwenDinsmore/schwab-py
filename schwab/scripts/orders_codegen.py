@@ -1,5 +1,5 @@
 import argparse
-import httpx
+from schwab._http import httpx
 import json
 
 from schwab.auth import client_from_token_file

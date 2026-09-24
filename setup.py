@@ -42,6 +42,9 @@ setuptools.setup(
         'websockets>=13.0'
     ],
     extras_require={
+        # authlib is migrating from httpx to httpx2 and uses httpx2 when it is
+        # installed. schwab-py follows whichever authlib uses.
+        'httpx2': ['httpx2'],
         'dev': [
             'callee',
             'colorama',

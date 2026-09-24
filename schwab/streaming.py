@@ -5,7 +5,7 @@ from enum import Enum
 import asyncio
 import copy
 import datetime
-import httpx
+from schwab._http import httpx
 import inspect
 import json
 import logging

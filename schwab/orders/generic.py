@@ -6,7 +6,7 @@ from enum import Enum
 from schwab.orders import common
 from schwab.utils import EnumEnforcer
 
-import httpx
+from schwab._http import httpx
 
 
 def _build_object(obj):

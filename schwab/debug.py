@@ -1,5 +1,5 @@
 import atexit
-import httpx
+from schwab._http import httpx
 import json
 import logging
 import sys

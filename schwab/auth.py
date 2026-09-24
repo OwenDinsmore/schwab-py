@@ -2,7 +2,7 @@ from authlib.integrations.httpx_client import AsyncOAuth2Client, OAuth2Client
 
 import collections
 import contextlib
-import httpx
+from schwab._http import httpx
 import json
 import logging
 import multiprocess
