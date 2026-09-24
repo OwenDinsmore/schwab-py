@@ -61,12 +61,44 @@ You can find a full reference for all supported fields in :ref:`order_builder`.
 Equity Templates
 ----------------
 
+Templates are provided for market, limit, stop, stop limit, trailing stop,
+market-on-close, and limit-on-close orders. All of them are day orders during
+the normal session. Since they return an ``OrderBuilder``, you can change
+anything about the order before placing it, for instance to make a stop order
+good until canceled:
+
+.. code-block:: python
+
+  from schwab.orders.common import Duration
+  from schwab.orders.equities import equity_sell_stop
+
+  order = (equity_sell_stop('GOOG', 10, '150.00')
+           .set_duration(Duration.GOOD_TILL_CANCEL))
+
+Trailing stop templates require you to say how the offset is measured, since
+confusing a percentage with a dollar amount would silently put the stop in the
+wrong place:
+
+.. code-block:: python
+
+  from schwab.orders.common import StopPriceLinkType
+  from schwab.orders.equities import equity_sell_trailing_stop
+
+  # Sell if the price falls 2.5% below its high since the order was placed
+  order = equity_sell_trailing_stop(
+          'GOOG', 10, 2.5, offset_type=StopPriceLinkType.PERCENT)
+
 ++++++++++
 Buy orders
 ++++++++++
 
 .. autofunction:: schwab.orders.equities.equity_buy_market
 .. autofunction:: schwab.orders.equities.equity_buy_limit
+.. autofunction:: schwab.orders.equities.equity_buy_stop
+.. autofunction:: schwab.orders.equities.equity_buy_stop_limit
+.. autofunction:: schwab.orders.equities.equity_buy_trailing_stop
+.. autofunction:: schwab.orders.equities.equity_buy_market_on_close
+.. autofunction:: schwab.orders.equities.equity_buy_limit_on_close
 
 +++++++++++
 Sell orders
@@ -74,6 +106,11 @@ Sell orders
 
 .. autofunction:: schwab.orders.equities.equity_sell_market
 .. autofunction:: schwab.orders.equities.equity_sell_limit
+.. autofunction:: schwab.orders.equities.equity_sell_stop
+.. autofunction:: schwab.orders.equities.equity_sell_stop_limit
+.. autofunction:: schwab.orders.equities.equity_sell_trailing_stop
+.. autofunction:: schwab.orders.equities.equity_sell_market_on_close
+.. autofunction:: schwab.orders.equities.equity_sell_limit_on_close
 
 +++++++++++++++++
 Sell short orders
@@ -81,6 +118,11 @@ Sell short orders
 
 .. autofunction:: schwab.orders.equities.equity_sell_short_market
 .. autofunction:: schwab.orders.equities.equity_sell_short_limit
+.. autofunction:: schwab.orders.equities.equity_sell_short_stop
+.. autofunction:: schwab.orders.equities.equity_sell_short_stop_limit
+.. autofunction:: schwab.orders.equities.equity_sell_short_trailing_stop
+.. autofunction:: schwab.orders.equities.equity_sell_short_market_on_close
+.. autofunction:: schwab.orders.equities.equity_sell_short_limit_on_close
 
 +++++++++++++++++++
 Buy to cover orders
@@ -88,6 +130,11 @@ Buy to cover orders
 
 .. autofunction:: schwab.orders.equities.equity_buy_to_cover_market
 .. autofunction:: schwab.orders.equities.equity_buy_to_cover_limit
+.. autofunction:: schwab.orders.equities.equity_buy_to_cover_stop
+.. autofunction:: schwab.orders.equities.equity_buy_to_cover_stop_limit
+.. autofunction:: schwab.orders.equities.equity_buy_to_cover_trailing_stop
+.. autofunction:: schwab.orders.equities.equity_buy_to_cover_market_on_close
+.. autofunction:: schwab.orders.equities.equity_buy_to_cover_limit_on_close
 
 
 -----------------
