@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 from schwab.utils import AccountHashMismatchException, Utils
 from schwab.utils import UnsuccessfulOrderException
@@ -86,6 +87,21 @@ class UtilsTest(unittest.TestCase):
             'https://api.schwabapi.com/trader/v1/accounts/{}/orders/{}'.format(
                 self.account_hash, order_id)})
         self.assertEqual(order_id, self.utils.extract_order_id(response))
+
+    @no_duplicates
+    def test_extract_order_id_non_httpx_response(self):
+        # requests.Response has no is_error attribute. See upstream issue #214.
+        response = SimpleNamespace(status_code=201, headers={
+            'Location':
+            'https://api.schwabapi.com/trader/v1/accounts/{}/orders/{}'.format(
+                self.account_hash, 123456)})
+        self.assertEqual(123456, self.utils.extract_order_id(response))
+
+    @no_duplicates
+    def test_extract_order_id_non_httpx_response_not_ok(self):
+        response = SimpleNamespace(status_code=400, headers={})
+        with self.assertRaises(UnsuccessfulOrderException):
+            self.utils.extract_order_id(response)
 
     @no_duplicates
     def test_get_order_success_201(self):

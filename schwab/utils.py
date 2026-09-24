@@ -125,7 +125,9 @@ class Utils(EnumEnforcer):
                            account hash is not equal to the account hash set in this
                            ``Utils`` object.
         '''
-        if place_order_response.is_error:
+        # Check the status code directly rather than using httpx's is_error so
+        # that responses from other HTTP libraries, such as requests, work too.
+        if place_order_response.status_code >= 400:
             raise UnsuccessfulOrderException(
                 'order not successful: status {}'.format(place_order_response.status_code))
 
