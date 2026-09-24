@@ -46,6 +46,19 @@ class RevokeTest(unittest.TestCase):
 
     @no_duplicates
     @patch('schwab.client.synchronous.httpx')
+    def test_custom_base_url(self, httpx):
+        httpx.post.return_value = MockResponse({}, 200)
+        metadata = make_token_metadata({'refresh_token': 'refresh'})
+        client = Client(API_KEY, make_session(), token_metadata=metadata,
+                        base_url='https://mock.server.com/')
+
+        client.revoke()
+
+        self.assertEqual('https://mock.server.com/v1/oauth/revoke',
+                         httpx.post.call_args[0][0])
+
+    @no_duplicates
+    @patch('schwab.client.synchronous.httpx')
     def test_failure_does_not_mark_revoked(self, httpx):
         httpx.post.return_value = MockResponse({}, 400)
         metadata = make_token_metadata({'refresh_token': 'refresh'})

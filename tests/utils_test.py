@@ -89,6 +89,14 @@ class UtilsTest(unittest.TestCase):
         self.assertEqual(order_id, self.utils.extract_order_id(response))
 
     @no_duplicates
+    def test_extract_order_id_custom_base_url(self):
+        response = MockResponse({}, 201, headers={
+            'Location':
+            'http://localhost:8080/proxy/trader/v1/accounts/{}/orders/{}'.format(
+                self.account_hash, 123456)})
+        self.assertEqual(123456, self.utils.extract_order_id(response))
+
+    @no_duplicates
     def test_extract_order_id_non_httpx_response(self):
         # requests.Response has no is_error attribute. See upstream issue #214.
         response = SimpleNamespace(status_code=201, headers={

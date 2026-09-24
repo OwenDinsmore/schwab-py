@@ -20,8 +20,6 @@ class Client(BaseClient):
 
         Returns the raw ``httpx`` response.
         '''
-        from ..auth import REVOKE_URL
-
         refresh_token = self.token_metadata.token.get('refresh_token')
         if not refresh_token:
             raise ValueError(
@@ -29,7 +27,7 @@ class Client(BaseClient):
                     'revoke.')
 
         resp = httpx.post(
-                REVOKE_URL,
+                self.base_url + '/v1/oauth/revoke',
                 data={'token': refresh_token,
                       'token_type_hint': 'refresh_token'},
                 auth=(self.session.client_id, self.session.client_secret),
@@ -41,7 +39,7 @@ class Client(BaseClient):
         return resp
 
     def _get_request(self, path, params):
-        dest = 'https://api.schwabapi.com' + path
+        dest = self.base_url + path
 
         req_num = self._req_num()
         self.logger.debug('Req %s: GET to %s, params=%s',
@@ -53,7 +51,7 @@ class Client(BaseClient):
         return resp
 
     def _post_request(self, path, data):
-        dest = 'https://api.schwabapi.com' + path
+        dest = self.base_url + path
 
         req_num = self._req_num()
         self.logger.debug('Req %s: POST to %s, json=%s',
@@ -65,7 +63,7 @@ class Client(BaseClient):
         return resp
 
     def _put_request(self, path, data):
-        dest = 'https://api.schwabapi.com' + path
+        dest = self.base_url + path
 
         req_num = self._req_num()
         self.logger.debug('Req %s: PUT to %s, json=%s',
@@ -77,7 +75,7 @@ class Client(BaseClient):
         return resp
 
     def _delete_request(self, path):
-        dest = 'https://api.schwabapi.com' + path
+        dest = self.base_url + path
 
         req_num = self._req_num()
         self.logger.debug('Req %s: DELETE to %s'.format(req_num, dest))

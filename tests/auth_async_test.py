@@ -141,7 +141,8 @@ class ClientFromAccessFunctionsTest(unittest.IsolatedAsyncioTestCase):
                              token_write_func, enforce_enums=False))
 
         client.assert_called_once_with(
-            API_KEY, _, token_metadata=_, enforce_enums=False)
+            API_KEY, _, token_metadata=_, enforce_enums=False,
+                base_url=_)
 
 
     @no_duplicates
@@ -169,4 +170,5 @@ class ClientFromAccessFunctionsTest(unittest.IsolatedAsyncioTestCase):
                              token_write_func))
 
         client.assert_called_once_with(
-            API_KEY, _, token_metadata=_, enforce_enums=True)
+            API_KEY, _, token_metadata=_, enforce_enums=True,
+                base_url=_)
