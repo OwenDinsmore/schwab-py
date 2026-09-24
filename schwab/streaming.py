@@ -11,8 +11,9 @@ import json
 import logging
 import schwab
 import urllib.parse
+import warnings
 
-import websockets.legacy.client as ws_client
+import websockets.asyncio.client as ws_client
 
 from .utils import EnumEnforcer, LazyLog
 
@@ -72,6 +73,21 @@ class UnexpectedResponseCode(Exception):
         self.response = response
 
 
+class StreamResponseTimeout(Exception):
+    '''
+    Raised when the stream server accepts a request but does not answer it
+    within the client's ``response_timeout``. This is distinct from the
+    ``websockets`` exceptions raised when the connection itself fails: the
+    socket is still open, so callers can choose to retry the operation or
+    reconnect.
+    '''
+    def __init__(self, request_id, service, command, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.request_id = request_id
+        self.service = service
+        self.command = command
+
+
 class UnparsableMessage(Exception):
     def __init__(self, raw_msg, json_parse_exception, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -101,8 +117,25 @@ class _Handler:
 class StreamClient(EnumEnforcer):
 
     def __init__(self, client, *, account_id=None,
-                 enforce_enums=True, ssl_context=None):
+                 enforce_enums=True, ssl_context=None, response_timeout=30.0,
+                 handler_error_callback=None):
+        '''
+        :param response_timeout: Maximum number of seconds to wait for the
+                                 server to answer a request such as a login or
+                                 subscription. Raises
+                                 :class:`StreamResponseTimeout` when exceeded.
+                                 Set to ``None`` to wait forever.
+        :param handler_error_callback: Called as ``callback(exception,
+                                       message)`` whenever a message handler
+                                       raises, whether the handler is a plain
+                                       function or a coroutine. Handler errors
+                                       are always logged; the remaining
+                                       handlers still run.
+        '''
         super().__init__(enforce_enums)
+
+        self._response_timeout = response_timeout
+        self._handler_error_callback = handler_error_callback
 
         self._ssl_context = ssl_context
         self._client = client
@@ -118,6 +151,15 @@ class StreamClient(EnumEnforcer):
         # Internal fields
         self._request_id = 0
         self._handlers = defaultdict(list)
+
+        # Requests whose responses we stopped waiting for after a timeout. If
+        # their responses arrive late, they are discarded instead of being
+        # mistaken for the response to a later request.
+        self._abandoned_request_ids = set()
+
+        # The event loop holds only weak references to tasks, so keep strong
+        # references to async handler tasks until they finish.
+        self._handler_tasks = set()
 
         # When listening for responses, we sometimes encounter non-response
         # messages. Since this happens outside the context of the handler
@@ -202,8 +244,19 @@ class StreamClient(EnumEnforcer):
         # Initialize socket
         wss_url = stream_info['streamerSocketUrl']
 
+        websocket_connect_args = dict(websocket_connect_args)
         if self._ssl_context:
             websocket_connect_args['ssl'] = self._ssl_context
+
+        # websockets 14 renamed extra_headers. Accept the old name so existing
+        # callers keep working.
+        if 'extra_headers' in websocket_connect_args:
+            warnings.warn(
+                    'the extra_headers websocket connect argument is '
+                    'deprecated, use additional_headers instead',
+                    DeprecationWarning, stacklevel=3)
+            websocket_connect_args['additional_headers'] = \
+                    websocket_connect_args.pop('extra_headers')
 
         self._socket = await ws_client.connect(
                 wss_url, **websocket_connect_args)
@@ -223,6 +276,25 @@ class StreamClient(EnumEnforcer):
         }
 
         return request, request_id
+
+    async def _send_and_await_response(self, request, request_id, service,
+                                       command):
+        '''
+        Sends a request and waits for its response. Must be called with
+        ``self._lock`` held.
+        '''
+        await self._send({'requests': [request]})
+        try:
+            await asyncio.wait_for(
+                    self._await_response(request_id, service, command),
+                    self._response_timeout)
+        except asyncio.TimeoutError:
+            self._abandoned_request_ids.add(request_id)
+            raise StreamResponseTimeout(
+                    request_id, service, command,
+                    'no response to {} {} request {} after {} seconds'.format(
+                        service, command, request_id,
+                        self._response_timeout)) from None
 
     async def _await_response(self, request_id, service, command):
         deferred_messages = []
@@ -249,6 +321,12 @@ class StreamClient(EnumEnforcer):
 
                 # Validate request ID
                 resp_request_id = int(resp['response'][0]['requestid'])
+                if resp_request_id in self._abandoned_request_ids:
+                    self._abandoned_request_ids.discard(resp_request_id)
+                    self.logger.warning(
+                            'Discarding late response to request %s',
+                            resp_request_id)
+                    continue
                 if resp_request_id != request_id:
                     raise UnexpectedResponse(
                         resp, 'unexpected requestid: {}'.format(
@@ -297,8 +375,8 @@ class StreamClient(EnumEnforcer):
             parameters=parameters)
 
         async with self._lock:
-            await self._send({'requests': [request]})
-            await self._await_response(request_id, service, command)
+            await self._send_and_await_response(
+                    request, request_id, service, command)
 
     async def handle_message(self):
         async with self._lock:
@@ -314,29 +392,49 @@ class StreamClient(EnumEnforcer):
         # data
         if 'data' in msg:
             for d in msg['data']:
-                if d['service'] in self._handlers:
-                    for handler in self._handlers[d['service']]:
-                        labeled_d = handler.label_message(d)
-                        h = handler(labeled_d)
-
-                        # Check if h is an awaitable, if so schedule it
-                        # This allows for both sync and async handlers
-                        if inspect.isawaitable(h):
-                            asyncio.ensure_future(h)
+                for handler in self._handlers.get(d.get('service'), ()):
+                    self._dispatch(handler, d, label=True)
 
         # notify
         if 'notify' in msg:
             for d in msg['notify']:
                 if 'heartbeat' in d:
-                    pass
-                else:
-                    for handler in self._handlers[d['service']]:
-                        h = handler(d)
+                    continue
+                for handler in self._handlers.get(d.get('service'), ()):
+                    self._dispatch(handler, d, label=False)
 
-                        # Check if h is an awaitable, if so schedule oit
-                        # This allows for both sync and async handlers
-                        if inspect.isawaitable(h):
-                            asyncio.ensure_future(h)
+    def _dispatch(self, handler, msg, *, label):
+        '''
+        Calls a single handler. Exceptions from both sync and async handlers
+        are reported through :meth:`_report_handler_error` and never prevent
+        other handlers from running.
+        '''
+        try:
+            h = handler(handler.label_message(msg) if label else msg)
+        except Exception as e:
+            self._report_handler_error(e, msg)
+            return
+
+        # Check if h is an awaitable, if so schedule it
+        # This allows for both sync and async handlers
+        if inspect.isawaitable(h):
+            task = asyncio.ensure_future(h)
+            self._handler_tasks.add(task)
+
+            def on_done(task):
+                self._handler_tasks.discard(task)
+                if not task.cancelled() and task.exception() is not None:
+                    self._report_handler_error(task.exception(), msg)
+            task.add_done_callback(on_done)
+
+    def _report_handler_error(self, exception, msg):
+        self.logger.error('Stream message handler raised an exception',
+                          exc_info=exception)
+        if self._handler_error_callback is not None:
+            try:
+                self._handler_error_callback(exception, msg)
+            except Exception:
+                self.logger.exception('Handler error callback raised')
 
     ##########################################################################
     # LOGIN
@@ -359,7 +457,7 @@ class StreamClient(EnumEnforcer):
                                        to the websocket ``connect`` call. Useful 
                                        for setting timeouts and other connection 
                                        parameters. See `the official 
-                                       documentation <https://websockets.readthedocs.io/en/stable/reference/client.html#websockets.client.connect>`__
+                                       documentation <https://websockets.readthedocs.io/en/stable/reference/asyncio/client.html#websockets.asyncio.client.connect>`__
                                        for details.
         '''
 
@@ -387,24 +485,56 @@ class StreamClient(EnumEnforcer):
             service='ADMIN', command='LOGIN',
             parameters=request_parameters)
         async with self._lock:
-            await self._send({'requests': [request]})
-            await self._await_response(request_id, 'ADMIN', 'LOGIN')
+            await self._send_and_await_response(
+                    request, request_id, 'ADMIN', 'LOGIN')
 
     ##########################################################################
     # LOGOUT
 
     async def logout(self):
         '''
-        Performs a logout operation on the stream. After this method is called,
-        no further stream operations are possible. The client must be
-        re-initialized with :meth:`login` to perform further operations.
+        Performs a logout operation on the stream and closes the connection.
+        After this method is called, no further stream operations are possible.
+        The client must be re-initialized with :meth:`login` to perform further
+        operations.
         '''
         request, request_id = self._make_request(
             service='ADMIN', command='LOGOUT',
             parameters={})
-        async with self._lock:
-            await self._send({'requests': [request]})
-            await self._await_response(request_id, 'ADMIN', 'LOGOUT')
+        try:
+            async with self._lock:
+                await self._send_and_await_response(
+                        request, request_id, 'ADMIN', 'LOGOUT')
+        finally:
+            await self.close()
+
+    ##########################################################################
+    # CLOSE
+
+    async def close(self):
+        '''
+        Closes the underlying websocket connection without logging out. Safe to
+        call more than once, and safe to call on a client that never logged
+        in. Also called automatically when the client is used as an async
+        context manager:
+
+        .. code-block:: python
+
+          async with StreamClient(client) as stream_client:
+              await stream_client.login()
+              ...
+        '''
+        socket, self._socket = self._socket, None
+        self._overflow_items.clear()
+        self._abandoned_request_ids.clear()
+        if socket is not None:
+            await socket.close()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.close()
 
     ##########################################################################
     # ACCT_ACTIVITY

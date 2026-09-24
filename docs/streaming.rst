@@ -32,21 +32,22 @@ run this outside regular trading hours you may not see anything):
           app_secret='YOUR_APP_SECRET',
           callback_url='https://127.0.0.1',
           token_path='/path/to/token.json')
-  stream_client = StreamClient(client, account_id=1234567890)
 
   async def read_stream():
-      await stream_client.login()
- 
-      def print_message(message):
-        print(json.dumps(message, indent=4))
+      async with StreamClient(client, account_id=1234567890) as stream_client:
+          await stream_client.login()
 
-      # Always add handlers before subscribing because many streams start sending 
-      # data immediately after success, and messages with no handlers are dropped.
-      stream_client.add_nasdaq_book_handler(print_message)
-      await stream_client.nasdaq_book_subs(['GOOG'])
+          def print_message(message):
+            print(json.dumps(message, indent=4))
 
-      while True:
-          await stream_client.handle_message()
+          # Always add handlers before subscribing because many streams start
+          # sending data immediately after success, and messages with no
+          # handlers are dropped.
+          stream_client.add_nasdaq_book_handler(print_message)
+          await stream_client.nasdaq_book_subs(['GOOG'])
+
+          while True:
+              await stream_client.handle_message()
 
   asyncio.run(read_stream())
 
@@ -82,8 +83,27 @@ Logging Out
 -----------
 
 For a clean exit, it's recommended to log out of the stream when you're done.
+Logging out also closes the connection. To close the connection without
+logging out, for instance after an error, call :meth:`StreamClient.close()` or
+use the client as an ``async with`` context manager, as in the example above.
 
 .. automethod:: schwab.streaming.StreamClient.logout
+.. automethod:: schwab.streaming.StreamClient.close
+
+
+----------------------
+Timeouts
+----------------------
+
+Operations that wait for a response from the server, such as logging in and
+subscribing, give up after ``response_timeout`` seconds (30 by default) and
+raise :class:`StreamResponseTimeout`. This prevents a request the server never
+answers from blocking the client forever. The connection is left open, so you
+can retry the operation or close the client and reconnect. Pass
+``response_timeout=None`` to the :class:`StreamClient` constructor to wait
+forever.
+
+.. autoclass:: schwab.streaming.StreamResponseTimeout
 
 
 ----------------------
@@ -160,6 +180,17 @@ Handlers should take a single argument representing the stream message received:
 
   def sample_handler(msg):
       print(json.dumps(msg, indent=4))
+
+Handlers may be plain functions or coroutine functions. Coroutine handlers are
+scheduled as tasks rather than awaited, so ``handle_message()`` does not wait
+for them to finish.
+
+If a handler raises an exception, the exception is logged and the remaining
+handlers still receive the message. To be notified of handler errors, for
+instance to alert on a failure to process an account activity message, pass a
+``handler_error_callback`` to the :class:`StreamClient` constructor. It is
+called as ``callback(exception, message)`` for both plain and coroutine
+handlers.
 
 
 ---------------------
