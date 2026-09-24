@@ -1,0 +1,72 @@
+=========
+Changelog
+=========
+
+Issue and pull request numbers refer to the upstream repository,
+`alexgolec/schwab-py <https://github.com/alexgolec/schwab-py>`__.
+
+
+1.6.0 (unreleased)
+==================
+
+Behavior changes
+----------------
+
+These fix real bugs but may be visible to existing code:
+
+* **Stream handler errors no longer escape** ``handle_message()``. A handler
+  that raises, whether a plain function or a coroutine, is logged and reported
+  to the new ``handler_error_callback``, and the other handlers still receive
+  the message. Previously a raising sync handler stopped dispatch to all other
+  handlers, and a raising async handler failed silently (#233).
+* **Stream requests time out** after 30 seconds by default, raising
+  ``StreamResponseTimeout``, instead of waiting forever. Pass
+  ``response_timeout=None`` to ``StreamClient`` for the old behavior (#237).
+* ``StreamClient.logout()`` now also closes the connection (#235).
+* ``websockets`` 13.0 or newer is required. The ``extra_headers`` connect
+  argument is still accepted, with a ``DeprecationWarning``; use
+  ``additional_headers`` (#225).
+* Timezone-aware datetimes passed to ``get_orders_for_account``,
+  ``get_orders_for_all_linked_accounts`` and ``get_transactions`` are converted
+  to UTC. Previously their wall-clock time was sent as if it were UTC (#195).
+* ``client_from_received_url``, and so the manual and login flows, raise
+  ``InvalidRedirectURLError`` for a redirect URL without an authorization code,
+  instead of silently fetching a token that can't be refreshed (#224).
+* Token files record whether they have been revoked. Older versions of
+  schwab-py ignore the extra field.
+
+Fixes
+-----
+
+* Float prices already at the target precision, like ``8.2``, are no longer
+  lowered by one tick. This affected about 5% of prices (#239).
+* Response values such as account numbers are redacted from bug report logs
+  again. Redaction was disabled by a leftover stub (#246).
+* Token files are written atomically and readable only by their owner (#231).
+* Clients created by the login and manual flows can refresh their tokens (#222,
+  PR #223).
+* ``extract_order_id`` works with responses from HTTP libraries other than
+  httpx (#214).
+* schwab-py uses the same HTTP library as authlib, which prefers ``httpx2``
+  when it is installed (#268).
+* Fixed several documentation errors, including the missing
+  ``client_from_access_functions`` example (#183, #216), the async client
+  example (#188, #199) and the nonexistent ``statuses`` parameter (#195).
+
+New features
+------------
+
+* Equity order templates for stop, stop limit, trailing stop,
+  market-on-close and limit-on-close orders (#227).
+* Straddle option templates (PR #179).
+* ``OrderBuilder.set_price_offset`` for trailing stop limit orders (PR #173).
+* ``set_price`` and ``set_stop_price`` accept ``decimal.Decimal``.
+* ``Client.revoke()`` revokes the refresh token with Schwab (PR #267).
+* ``base_url`` parameter on all client creation functions, for mock servers and
+  proxies (#218, PR #219).
+* ``StreamClient.close()`` and ``async with StreamClient(...)`` support (#235).
+* ``client_from_access_functions_async`` for async token storage (PR #205).
+* ``Session.EXTO`` for the extended overnight session (PR #213).
+* ``LevelOneOptionFields.STRIKE_PRICE``, an accurately named alias for
+  ``STRIKE_TYPE`` (#197).
+* ``schwab-py[httpx2]`` extra.
