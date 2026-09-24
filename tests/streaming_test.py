@@ -5741,6 +5741,17 @@ class StreamClientTest(IsolatedAsyncioTestCase):
             await self.client.chart_equity_unsubs(['GOOG,MSFT'])
 
     ###########################################################################
+    # Field naming
+
+    @no_duplicates
+    def test_level_one_option_strike_price_alias(self):
+        fields = StreamClient.LevelOneOptionFields
+        self.assertIs(fields.STRIKE_PRICE, fields.STRIKE_TYPE)
+        self.assertEqual(20, fields.STRIKE_PRICE.value)
+        # Relabeled messages keep the old key until the next major version
+        self.assertEqual('STRIKE_TYPE', fields.key_mapping()['20'])
+
+    ###########################################################################
     # Connection lifecycle
 
     @no_duplicates

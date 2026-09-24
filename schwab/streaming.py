@@ -1052,7 +1052,12 @@ class StreamClient(EnumEnforcer):
         #: Net change
         NET_CHANGE = 19
 
-        #: Strike type
+        #: Strike price
+        STRIKE_PRICE = 20
+
+        #: Deprecated alias of ``STRIKE_PRICE``, kept so existing code keeps
+        #: working. Relabeled messages still use this name as the key until the
+        #: next major version. This field has always held the strike price.
         STRIKE_TYPE = 20
 
         #: Contract type

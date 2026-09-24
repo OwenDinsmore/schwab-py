@@ -45,10 +45,23 @@ class Duration(Enum):
     #: immediately.
     FILL_OR_KILL = 'FILL_OR_KILL'
 
-    # TODO: Document these
+    # The following values appear in Schwab's schema, but Schwab rejects them
+    # with HTTP 400 when placing equity orders (see upstream issue #226).
+
+    #: Execute whatever portion of the order can be filled immediately and
+    #: cancel the rest. **Rejected by Schwab for equity orders.**
     IMMEDIATE_OR_CANCEL = 'IMMEDIATE_OR_CANCEL'
+
+    #: Keep the order open until the end of the week. **Rejected by Schwab for
+    #: equity orders.**
     END_OF_WEEK = 'END_OF_WEEK'
+
+    #: Keep the order open until the end of the month. **Rejected by Schwab for
+    #: equity orders.**
     END_OF_MONTH = 'END_OF_MONTH'
+
+    #: Keep the order open until the end of next month. **Rejected by Schwab
+    #: for equity orders.**
     NEXT_END_OF_MONTH = 'NEXT_END_OF_MONTH'
 
 
