@@ -1,5 +1,7 @@
+import decimal
 import httpx
 import unittest
+import warnings
 
 from schwab.orders.generic import *
 from schwab.orders.common import *
@@ -1176,6 +1178,13 @@ class OrderBuilderExamplesTest(unittest.TestCase):
 
 class TruncateFloatTest(unittest.TestCase):
 
+    def setUp(self):
+        # truncate_float warns that float prices are deprecated on every call
+        catcher = warnings.catch_warnings()
+        catcher.__enter__()
+        self.addCleanup(catcher.__exit__, None, None, None)
+        warnings.simplefilter('ignore')
+
     def test_zero(self):
         self.assertEqual('0.00', truncate_float(0))
 
@@ -1215,3 +1224,48 @@ class TruncateFloatTest(unittest.TestCase):
 
     def test_negative_less_than_one(self):
         self.assertEqual('-0.1212', truncate_float(-.12121))
+
+    # Values that are already at the target precision must not lose a tick to
+    # binary floating point error. See upstream issue #239.
+
+    def test_exact_two_digit_prices_unchanged(self):
+        for price in (8.2, 78.6, 2.3, 1.13, 1.15, 4.35, 1000.0):
+            with self.subTest(price=price):
+                self.assertEqual('{:.2f}'.format(price), truncate_float(price))
+
+    def test_every_cent_up_to_one_thousand_unchanged(self):
+        for cents in range(100, 100001):
+            expected = '{}.{:02d}'.format(cents // 100, cents % 100)
+            self.assertEqual(expected, truncate_float(float(expected)))
+
+    def test_every_sub_dollar_tick_unchanged(self):
+        for ticks in range(1, 10000):
+            expected = '0.{:04d}'.format(ticks)
+            self.assertEqual(expected, truncate_float(float(expected)))
+
+    def test_negative_exact_price_unchanged(self):
+        self.assertEqual('-8.20', truncate_float(-8.2))
+
+
+class DecimalPriceTest(unittest.TestCase):
+
+    def test_set_price_decimal(self):
+        builder = OrderBuilder().set_price(decimal.Decimal('8.20'))
+        self.assertEqual('8.20', builder.build()['price'])
+
+    def test_set_price_decimal_truncates(self):
+        builder = OrderBuilder().set_price(decimal.Decimal('12.129'))
+        self.assertEqual('12.12', builder.build()['price'])
+
+    def test_set_price_decimal_less_than_one(self):
+        builder = OrderBuilder().set_price(decimal.Decimal('0.186992'))
+        self.assertEqual('0.1869', builder.build()['price'])
+
+    def test_set_stop_price_decimal(self):
+        builder = OrderBuilder().set_stop_price(decimal.Decimal('78.6'))
+        self.assertEqual('78.60', builder.build()['stopPrice'])
+
+    def test_set_price_decimal_does_not_warn(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter('error')
+            OrderBuilder().set_price(decimal.Decimal('1.13'))

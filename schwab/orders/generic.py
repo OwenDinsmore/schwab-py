@@ -1,3 +1,4 @@
+import decimal
 import warnings
 
 from enum import Enum
@@ -38,10 +39,29 @@ def truncate_float(flt):
     warnings.warn('passing floats to set_price and set_stop_price is '+
                   'deprecated and will be removed soon. Please update your '+
                   'code to pass prices as strings instead.')
-    if abs(flt) < 1 and flt != 0.0:
-        return '{:.4f}'.format(float(int(flt * 10000)) / 10000.0)
+    return _truncate_price(flt)
+
+
+def _truncate_price(price):
+    '''
+    Truncates (not rounds) a price to four decimal places if its absolute value
+    is less than one, and to two decimal places otherwise.
+    '''
+    # Floats are converted through their shortest round-tripping repr, so a
+    # value like 8.2 is treated as exactly 8.2 rather than as its binary
+    # approximation, 8.1999999999999993. Scaling the binary value and
+    # truncating it, as this function used to do, knocked about 5% of prices
+    # down by one tick.
+    if isinstance(price, float):
+        price = decimal.Decimal(repr(price))
     else:
-        return '{:.2f}'.format(float(int(flt * 100)) / 100.0)
+        price = decimal.Decimal(price)
+
+    if abs(price) < 1 and price != 0:
+        quantum = decimal.Decimal('0.0001')
+    else:
+        quantum = decimal.Decimal('0.01')
+    return str(price.quantize(quantum, rounding=decimal.ROUND_DOWN))
 
 
 class OrderBuilder(EnumEnforcer):
@@ -186,11 +206,13 @@ class OrderBuilder(EnumEnforcer):
     # StopPrice
     def set_stop_price(self, stop_price):
         '''
-        Set the stop price. Note price can be passed as either a `float` or an
-        `str`. See :ref:`number_truncation`.
+        Set the stop price. Note price can be passed as a `str`, a
+        `decimal.Decimal`, or a `float`. See :ref:`number_truncation`.
         '''
         if isinstance(stop_price, str):
             self._stopPrice = stop_price
+        elif isinstance(stop_price, decimal.Decimal):
+            self._stopPrice = _truncate_price(stop_price)
         else:
             self._stopPrice = truncate_float(stop_price)
         return self
@@ -332,11 +354,13 @@ class OrderBuilder(EnumEnforcer):
     # Price
     def set_price(self, price):
         '''
-        Set the order price. Note price can be passed as either a `float` or an
-        `str`. See :ref:`number_truncation`.
+        Set the order price. Note price can be passed as a `str`, a
+        `decimal.Decimal`, or a `float`. See :ref:`number_truncation`.
         '''
         if isinstance(price, str):
             self._price = price
+        elif isinstance(price, decimal.Decimal):
+            self._price = _truncate_price(price)
         else:
             self._price = truncate_float(price)
         return self

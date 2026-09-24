@@ -304,14 +304,18 @@ Note on Truncation
 ~~~~~~~~~~~~~~~~~~
 
 **Important Note:** Under the hood, the Schwab API expects price as a string, 
-whereas ``schwab-py`` allows setting prices as a floating point number for 
-convenience.  The passed value is then converted to a string under the hood, 
-which involves some truncation logic:
+whereas ``schwab-py`` allows setting prices as a ``decimal.Decimal`` or, for 
+convenience, a floating point number. Passing floats is deprecated; prefer 
+``Decimal`` or ``str``. The passed value is then converted to a string under 
+the hood, which involves some truncation logic:
 
  * If the price has absolute value less than one, truncate  (not round!) to 
    four decimal places. For example, `0.186992` will become `0.1869`.
  * For all other values, truncate to two decimal places. The above example would 
    become `0.18`. 
+
+Floats are interpreted by their shortest decimal representation, so ``8.2`` is 
+treated as exactly ``8.20`` and is left unchanged.
 
 This behavior is meant as a sane heuristic, and there are almost certainly 
 situations where it is not the correct thing to do. You can sidestep this entire 
