@@ -173,6 +173,15 @@ instead.
 
 .. autofunction:: schwab.auth.client_from_access_functions
 
+.. _access_functions_example:
+
+Here is a complete example which stores the token in a SQLite database. The
+same pattern works for any storage you can read and write a string to, such as
+AWS Secrets Manager or S3:
+
+.. literalinclude:: ../examples/client_from_access_functions.py
+  :language: python
+
 
 ++++++++++++++++++++++++++++++++++++++++
 Technical Details about Token Refreshing

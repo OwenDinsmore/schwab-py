@@ -279,8 +279,9 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
                           to avoid errors.
     :param token_write_func: Function that writes the token on update. Will be
                              called whenever the token is updated, such as when
-                             it is refreshed. See the above-mentioned example 
-                             for what parameters this method takes.
+                             it is refreshed. It is called with the token as
+                             its first argument, and must accept and ignore
+                             any other positional and keyword arguments.
     :param callback_timeout: How long to wait for a callback from the server 
                              before giving up, in seconds. Wait forever if set
                              to zero or ``None``.
@@ -619,9 +620,8 @@ def client_from_access_functions(api_key, app_secret, token_read_func,
     simply accept the token object and use ``json`` to serialize and
     deserialize it, without inspecting it in any way.
 
-    Note the read and write methods must take particular arguments. Please see 
-    `this example <https://github.com/alexgolec/schwab-py/tree/master/examples/
-    client_from_access_functions.py>`__ for details.
+    Note the read and write methods must take particular arguments. Please see
+    :ref:`the example below <access_functions_example>` for details.
 
     :param api_key: Your Schwab application's app key.
     :param app_secret: Application secret. Provided upon :ref:`app approval 
@@ -630,8 +630,9 @@ def client_from_access_functions(api_key, app_secret, token_read_func,
                             object.
     :param token_write_func: Function that writes the token on update. Will be
                              called whenever the token is updated, such as when
-                             it is refreshed. See the above-mentioned example 
-                             for what parameters this method takes.
+                             it is refreshed. It is called with the token as
+                             its first argument, and must accept and ignore
+                             any other positional and keyword arguments.
     :param asyncio: If set to ``True``, this will enable async support allowing
                     the client to be used in an async environment. Defaults to
                     ``False``

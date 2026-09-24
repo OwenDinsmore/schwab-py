@@ -44,20 +44,31 @@ An asynchronous variant is available through a keyword to the client
 constructor. This allows for higher-performance API usage, at the cost
 of slightly increased application complexity.
 
+The functions in :ref:`auth` that create clients, such as
+:func:`~schwab.auth.easy_client`, are regular functions even when passed
+``asyncio=True``. Don't ``await`` them; doing so raises ``TypeError: object
+AsyncClient can't be used in 'await' expression``. Await the methods of the
+client they return instead.
+
 .. code-block:: python
 
-  from schwab.auth import client_from_manual_flow
+  from schwab.auth import easy_client
 
   async def main():
+      # Note: easy_client itself is not a coroutine, so it is not awaited.
+      # Only the methods of the returned client are.
       c = easy_client(
               api_key='APIKEY',
-              redirect_uri='https://localhost',
+              app_secret='APP_SECRET',
+              callback_url='https://127.0.0.1:8182',
               token_path='/tmp/token.json',
               asyncio=True)
 
       resp = await c.get_price_history_every_day('AAPL')
-      assert resp.status_code == httpx.codes.OK
+      resp.raise_for_status()
       history = resp.json()
+
+      await c.close_async_session()
 
   if __name__ == '__main__':
       import asyncio
