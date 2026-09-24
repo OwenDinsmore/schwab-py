@@ -49,7 +49,6 @@ setuptools.setup(
             'callee',
             'colorama',
             'coverage',
-            'nose',
             'pytest',
             'pytz',
             'setuptools',

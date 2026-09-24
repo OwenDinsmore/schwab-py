@@ -7,15 +7,13 @@ fix:
 	#autopep8 --in-place -r -a examples
 
 coverage:
-	python3 -m coverage run --source=schwab -m nose
+	python3 -m coverage run --source=schwab -m pytest tests/
 	python3 -m coverage html
 
 dist: clean
 	python3 setup.py sdist bdist_wheel
 
-# TODO: Reinstate tests before releasing
-#release: clean test dist
-release: clean dist
+release: clean test dist
 	python3 -m twine upload dist/*
 
 clean:
