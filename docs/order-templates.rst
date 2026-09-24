@@ -198,6 +198,19 @@ Put Verticals
 .. autofunction:: schwab.orders.options.bear_put_vertical_close
 
 
+~~~~~~~~~
+Straddles
+~~~~~~~~~
+
+A straddle buys or sells a call and a put with the same strike and expiration.
+These templates raise ``ValueError`` if the two strikes differ.
+
+.. autofunction:: schwab.orders.options.long_straddle_open
+.. autofunction:: schwab.orders.options.long_straddle_close
+.. autofunction:: schwab.orders.options.short_straddle_open
+.. autofunction:: schwab.orders.options.short_straddle_close
+
+
 ---------------
 Utility Methods
 ---------------
