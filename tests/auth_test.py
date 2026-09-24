@@ -296,6 +296,69 @@ class ClientFromLoginFlowTest(unittest.TestCase):
                     callback_timeout=0)
 
 
+class WriteTokenFileTest(unittest.TestCase):
+
+    def setUp(self):
+        self.tmp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp_dir.cleanup)
+        self.token_path = os.path.join(self.tmp_dir.name, 'token.json')
+
+    @no_duplicates
+    def test_writes_token(self):
+        auth._write_token_file(self.token_path, {'token': 'yes'})
+
+        with open(self.token_path, 'r') as f:
+            self.assertEqual({'token': 'yes'}, json.load(f))
+
+    @no_duplicates
+    def test_overwrites_existing_token(self):
+        auth._write_token_file(self.token_path, {'token': 'old'})
+        auth._write_token_file(self.token_path, {'token': 'new'})
+
+        with open(self.token_path, 'r') as f:
+            self.assertEqual({'token': 'new'}, json.load(f))
+
+    @no_duplicates
+    @unittest.skipIf(os.name != 'posix', 'POSIX permissions only')
+    def test_token_readable_only_by_owner(self):
+        auth._write_token_file(self.token_path, {'token': 'yes'})
+
+        self.assertEqual(0o600, os.stat(self.token_path).st_mode & 0o777)
+
+    @no_duplicates
+    @unittest.skipIf(os.name != 'posix', 'POSIX permissions only')
+    def test_tightens_permissions_of_existing_file(self):
+        with open(self.token_path, 'w') as f:
+            f.write('{}')
+        os.chmod(self.token_path, 0o644)
+
+        auth._write_token_file(self.token_path, {'token': 'yes'})
+
+        self.assertEqual(0o600, os.stat(self.token_path).st_mode & 0o777)
+
+    @no_duplicates
+    def test_failed_write_leaves_existing_token_intact(self):
+        auth._write_token_file(self.token_path, {'token': 'old'})
+
+        with self.assertRaises(TypeError):
+            auth._write_token_file(self.token_path, {'token': object()})
+
+        with open(self.token_path, 'r') as f:
+            self.assertEqual({'token': 'old'}, json.load(f))
+        self.assertEqual(['token.json'], os.listdir(self.tmp_dir.name))
+
+    @no_duplicates
+    def test_relative_path(self):
+        cwd = os.getcwd()
+        os.chdir(self.tmp_dir.name)
+        self.addCleanup(os.chdir, cwd)
+
+        auth._write_token_file('token.json', {'token': 'yes'})
+
+        with open(self.token_path, 'r') as f:
+            self.assertEqual({'token': 'yes'}, json.load(f))
+
+
 class ClientFromTokenFileTest(unittest.TestCase):
 
     def setUp(self):

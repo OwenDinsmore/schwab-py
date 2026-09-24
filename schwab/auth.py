@@ -10,6 +10,7 @@ import os
 import psutil
 import queue
 import sys
+import tempfile
 import time
 import urllib
 import urllib3
@@ -27,12 +28,37 @@ def get_logger():
     return logging.getLogger(__name__)
 
 
+def _write_token_file(token_path, token):
+    '''
+    Writes the token atomically and readable only by its owner. The token is
+    written to a temporary file in the same directory, which is then moved over
+    the destination, so a crash or a concurrent reader never sees a partially
+    written token.
+    '''
+    token_path = os.path.abspath(token_path)
+    fd, tmp_path = tempfile.mkstemp(
+            dir=os.path.dirname(token_path),
+            prefix='.' + os.path.basename(token_path) + '.',
+            suffix='.tmp')
+    try:
+        # mkstemp already creates the file with mode 0600 on POSIX
+        with os.fdopen(fd, 'w') as f:
+            json.dump(token, f)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, token_path)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
 def __make_update_token_func(token_path):
     def update_token(t, *args, **kwargs):
         get_logger().info('Updating token to file %s', token_path)
-
-        with open(token_path, 'w') as f:
-            json.dump(t, f)
+        _write_token_file(token_path, t)
     return update_token
 
 
