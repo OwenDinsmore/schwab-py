@@ -53,6 +53,10 @@ class RegisterRedactionsTest(unittest.TestCase):
         self.logger = logging.getLogger('test')
         self.dump_logs = schwab.debug._enable_bug_report_logging(
             output=self.captured, loggers=[self.logger])
+        self.addCleanup(atexit.unregister, self.dump_logs)
+        self.addCleanup(self.logger.handlers.clear)
+        self.addCleanup(setattr, schwab.debug,
+                        '_collect_response_redactions', False)
         schwab.LOG_REDACTOR = schwab.debug.LogRedactor()
 
     @no_duplicates
@@ -149,10 +153,71 @@ class RegisterRedactionsTest(unittest.TestCase):
         schwab.debug.register_redactions_from_response(resp)
         register_redactions.assert_not_called()
 
+class ResponseRedactionGatingTest(unittest.TestCase):
+
+    def setUp(self):
+        self.addCleanup(setattr, schwab.debug,
+                        '_collect_response_redactions', False)
+
+    @no_duplicates
+    def test_clients_use_real_redaction_function(self):
+        # Guards against a no-op stub shadowing the real function again. See
+        # upstream issue #246.
+        import schwab.client.synchronous
+        import schwab.client.asynchronous
+        self.assertIs(schwab.client.synchronous.register_redactions_from_response,
+                      schwab.debug.register_redactions_from_response)
+        self.assertIs(schwab.client.asynchronous.register_redactions_from_response,
+                      schwab.debug.register_redactions_from_response)
+
+    @no_duplicates
+    @patch('schwab.debug.register_redactions', new_callable=Mock)
+    def test_not_collected_unless_bug_report_logging_enabled(
+            self, register_redactions):
+        schwab.debug._collect_response_redactions = False
+        resp = MockResponse({'accountNumber': '123'}, 200)
+        schwab.debug.register_redactions_from_response(resp)
+        register_redactions.assert_not_called()
+
+    @no_duplicates
+    @patch('atexit.register')
+    @patch('schwab.debug.register_redactions', new_callable=Mock)
+    def test_collected_once_bug_report_logging_enabled(
+            self, register_redactions, _):
+        schwab.debug._enable_bug_report_logging(
+                output=io.StringIO(), loggers=[])
+        resp = MockResponse({'accountNumber': '123'}, 200)
+        schwab.debug.register_redactions_from_response(resp)
+        register_redactions.assert_called_once_with({'accountNumber': '123'})
+
+    @no_duplicates
+    @patch('atexit.register')
+    def test_account_number_redacted_from_client_response_logs(self, _):
+        schwab.LOG_REDACTOR = schwab.debug.LogRedactor()
+        captured = io.StringIO()
+        logger = logging.getLogger('schwab.client.base')
+        self.addCleanup(logger.handlers.clear)
+        dump_logs = schwab.debug._enable_bug_report_logging(
+                output=captured, loggers=[logger])
+
+        session = Mock()
+        session.get.return_value = MockResponse(
+                [{'accountNumber': '98765432', 'hashValue': 'ABCHASH'}], 200)
+        client = Client('API_KEY', session)
+        client.get_account_numbers()
+        logger.debug('account is 98765432')
+
+        dump_logs()
+        self.assertNotIn('98765432', captured.getvalue())
+
+
 class EnableDebugLoggingTest(unittest.TestCase):
 
+    @patch('atexit.register')
     @patch('logging.Logger.addHandler')
-    def test_enable_doesnt_throw_exceptions(self, _):
+    def test_enable_doesnt_throw_exceptions(self, _, __):
+        self.addCleanup(setattr, schwab.debug,
+                        '_collect_response_redactions', False)
         try:
             schwab.debug.enable_bug_report_logging()
         except AttributeError:

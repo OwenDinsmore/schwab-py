@@ -10,6 +10,12 @@ def get_logger():
     return logging.getLogger(__name__)
 
 
+# Collecting redactions from responses costs a JSON parse and tree walk per
+# request, and the collected values are kept for the life of the process, so it
+# is only done once bug report logging, the only consumer, has been enabled.
+_collect_response_redactions = False
+
+
 class LogRedactor:
     '''
     Collects strings that should not be emitted and replaces them with safe
@@ -48,8 +54,11 @@ class LogRedactor:
 def register_redactions_from_response(resp):
     '''
     Convenience method that calls ``register_redactions`` if resp represents a
-    successful response. Note this method assumes that resp has a JSON contents.
+    successful response and bug report logging is enabled. Note this method
+    assumes that resp has a JSON contents.
     '''
+    if not _collect_response_redactions:
+        return
     if resp.status_code == httpx.codes.OK:
         try:
             register_redactions(resp.json())
@@ -59,7 +68,8 @@ def register_redactions_from_response(resp):
 
 def register_redactions(obj, key_path=None,
                         bad_patterns=[
-                            'auth', 'acl', 'displayname', 'id', 'key', 'token'],
+                            'auth', 'acl', 'displayname', 'id', 'key', 'token',
+                            'accountnumber', 'hashvalue', 'accounthash'],
                         whitelisted=set([
                             'requestid',
                             'token_type',
@@ -110,11 +120,17 @@ def enable_bug_report_logging():
     _enable_bug_report_logging()
 
 
-def _enable_bug_report_logging(output=sys.stderr, loggers=None):
+def _enable_bug_report_logging(output=None, loggers=None):
     '''
     Module-internal version of :func:`enable_bug_report_logging`, intended for
     use in tests.
     '''
+    global _collect_response_redactions
+    _collect_response_redactions = True
+
+    if output is None:
+        output = sys.stderr
+
     if loggers is None:
         loggers = (
             schwab.auth.get_logger(),

@@ -2,9 +2,6 @@ from .base import BaseClient
 from ..debug import register_redactions_from_response
 from ..utils import LazyLog
 
-def register_redactions_from_response(x):
-    pass
-
 import json
 
 
