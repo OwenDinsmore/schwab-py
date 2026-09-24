@@ -66,7 +66,8 @@ class ClientFromAccessFunctionsTest(unittest.IsolatedAsyncioTestCase):
         update_token(self.raw_token)
         self.assertEqual([{
             'creation_timestamp': TOKEN_CREATION_TIMESTAMP,
-            'token': self.raw_token
+            'token': self.raw_token,
+            'revoked': False,
         }], token_writes)
 
 
@@ -110,7 +111,8 @@ class ClientFromAccessFunctionsTest(unittest.IsolatedAsyncioTestCase):
         update_token(self.raw_token)
         self.assertEqual([{
             'creation_timestamp': TOKEN_CREATION_TIMESTAMP,
-            'token': self.raw_token
+            'token': self.raw_token,
+            'revoked': False,
         }], token_writes)
 
 

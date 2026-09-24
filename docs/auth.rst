@@ -131,6 +131,30 @@ seven day token age restriction is implemented by Schwab, and so the token may
 become expired sooner *or* later than seven days.
 
 
+.. _token_revocation:
+
+----------------
+Revoking a Token
+----------------
+
+Deleting a token file only forgets the token locally. If a token may have
+leaked, for instance because the token file was copied somewhere it shouldn't
+have been, revoke it with Schwab instead. Revoking the refresh token also
+invalidates every access token issued from it:
+
+.. code-block:: python
+
+  client.revoke()
+
+After a successful revocation, the token file is marked as revoked.
+:func:`~schwab.auth.easy_client` treats a revoked token as missing and runs the
+login flow to create a new one, while :func:`~schwab.auth.client_from_token_file`
+raises :class:`~schwab.auth.TokenRevokedError`.
+
+.. automethod:: schwab.client.Client.revoke
+.. autoclass:: schwab.auth.TokenRevokedError
+
+
 ----------------------
 Advanced Functionality
 ----------------------
