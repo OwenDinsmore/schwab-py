@@ -97,6 +97,15 @@ class UtilsTest(unittest.TestCase):
         self.assertEqual(123456, self.utils.extract_order_id(response))
 
     @no_duplicates
+    def test_extract_order_id_with_account_number(self):
+        self.mock_client._account_hashes = {'12345678': 'RESOLVEDHASH'}
+        utils = Utils(self.mock_client, '12345678')
+        response = MockResponse({}, 201, headers={
+            'Location': 'https://api.schwabapi.com/trader/v1/accounts/' +
+                        'RESOLVEDHASH/orders/123456'})
+        self.assertEqual(123456, utils.extract_order_id(response))
+
+    @no_duplicates
     def test_extract_order_id_non_httpx_response(self):
         # requests.Response has no is_error attribute. See upstream issue #214.
         response = SimpleNamespace(status_code=201, headers={

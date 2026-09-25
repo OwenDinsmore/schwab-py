@@ -5,12 +5,13 @@ import os
 import pytest
 import pytz
 import unittest
-from unittest.mock import ANY, MagicMock, Mock, patch
+from unittest.mock import ANY, MagicMock, Mock, call, patch
 
 from schwab.client import AsyncClient, Client
 from schwab.orders.generic import OrderBuilder
 
-from .utils import AsyncMagicMock, ResyncProxy, no_duplicates
+from schwab.utils import AccountHashLookupError
+from .utils import AsyncMagicMock, MockResponse, ResyncProxy, no_duplicates
 
 # Constants
 
@@ -85,6 +86,136 @@ class _TestClient:
             transactionId=TRANSACTION_ID,
             watchlistId=WATCHLIST_ID)
         return 'https://api.schwabapi.com' + path
+
+
+    # Account hash resolution
+
+    ACCOUNT_NUMBER = '12345678'
+    RESOLVED_HASH = 'E5B2C3F1A9D8'
+
+    def account_numbers_response(self, *numbers_and_hashes):
+        return MockResponse([
+            {'accountNumber': number, 'hashValue': account_hash}
+            for number, account_hash in numbers_and_hashes], 200)
+
+    def account_numbers_url(self):
+        return self.make_url('/trader/v1/accounts/accountNumbers')
+
+    def test_account_number_resolved_to_hash(self):
+        self.mock_session.get.side_effect = [
+            self.account_numbers_response(
+                (self.ACCOUNT_NUMBER, self.RESOLVED_HASH)),
+            MockResponse({}, 200),
+        ]
+
+        self.client.get_account(self.ACCOUNT_NUMBER)
+
+        self.assertEqual([
+            call(self.account_numbers_url(), params={}),
+            call(self.make_url('/trader/v1/accounts/' + self.RESOLVED_HASH),
+                 params={}),
+        ], self.mock_session.get.call_args_list)
+
+    def test_account_number_as_int(self):
+        self.mock_session.get.side_effect = [
+            self.account_numbers_response(
+                (self.ACCOUNT_NUMBER, self.RESOLVED_HASH)),
+            MockResponse({}, 200),
+        ]
+
+        self.client.get_account(int(self.ACCOUNT_NUMBER))
+
+        self.assertEqual(
+            self.make_url('/trader/v1/accounts/' + self.RESOLVED_HASH),
+            self.mock_session.get.call_args_list[1][0][0])
+
+    def test_account_hashes_are_cached(self):
+        self.mock_session.get.side_effect = [
+            self.account_numbers_response(
+                (self.ACCOUNT_NUMBER, self.RESOLVED_HASH)),
+            MockResponse({}, 200),
+            MockResponse({}, 200),
+        ]
+
+        self.client.get_account(self.ACCOUNT_NUMBER)
+        self.client.get_orders_for_account(self.ACCOUNT_NUMBER)
+
+        self.assertEqual(3, self.mock_session.get.call_count)
+        self.assertEqual(
+            self.make_url(
+                '/trader/v1/accounts/' + self.RESOLVED_HASH + '/orders'),
+            self.mock_session.get.call_args_list[2][0][0])
+
+    def test_unknown_account_number_refetches_once(self):
+        self.mock_session.get.side_effect = [
+            self.account_numbers_response(('11111111', 'HASH1')),
+            MockResponse({}, 200),
+            self.account_numbers_response(
+                ('11111111', 'HASH1'),
+                (self.ACCOUNT_NUMBER, self.RESOLVED_HASH)),
+            MockResponse({}, 200),
+        ]
+
+        self.client.get_account('11111111')
+        self.client.get_account(self.ACCOUNT_NUMBER)
+
+        self.assertEqual(
+            self.make_url('/trader/v1/accounts/' + self.RESOLVED_HASH),
+            self.mock_session.get.call_args_list[3][0][0])
+
+    def test_account_number_not_linked(self):
+        self.mock_session.get.side_effect = [
+            self.account_numbers_response(('11111111', 'HASH1')),
+        ]
+
+        with self.assertRaisesRegex(ValueError, '12345678 is not among'):
+            self.client.get_account(self.ACCOUNT_NUMBER)
+
+    def test_account_hash_lookup_failure(self):
+        self.mock_session.get.side_effect = [MockResponse({}, 401)]
+
+        with self.assertRaises(AccountHashLookupError) as cm:
+            self.client.get_account(self.ACCOUNT_NUMBER)
+        self.assertEqual(401, cm.exception.response.status_code)
+
+    def test_account_hash_passed_through(self):
+        self.client.get_account(ACCOUNT_HASH)
+        self.mock_session.get.assert_called_once_with(
+            self.make_url('/trader/v1/accounts/{accountHash}'), params={})
+
+    def test_place_order_with_account_number(self):
+        self.mock_session.get.side_effect = [
+            self.account_numbers_response(
+                (self.ACCOUNT_NUMBER, self.RESOLVED_HASH)),
+        ]
+
+        self.client.place_order(self.ACCOUNT_NUMBER, {'order': 'spec'})
+
+        self.mock_session.post.assert_called_once_with(
+            self.make_url(
+                '/trader/v1/accounts/' + self.RESOLVED_HASH + '/orders'),
+            json={'order': 'spec'})
+
+    def test_cancel_order_with_account_number(self):
+        self.mock_session.get.side_effect = [
+            self.account_numbers_response(
+                (self.ACCOUNT_NUMBER, self.RESOLVED_HASH)),
+        ]
+
+        self.client.cancel_order(ORDER_ID, self.ACCOUNT_NUMBER)
+
+        self.mock_session.delete.assert_called_once_with(
+            self.make_url('/trader/v1/accounts/{}/orders/{{orderId}}'.format(
+                self.RESOLVED_HASH)))
+
+    def test_get_account_hash(self):
+        self.mock_session.get.side_effect = [
+            self.account_numbers_response(
+                (self.ACCOUNT_NUMBER, self.RESOLVED_HASH)),
+        ]
+
+        self.assertEqual(self.RESOLVED_HASH,
+                         self.client.get_account_hash(self.ACCOUNT_NUMBER))
 
 
     # Generic functionality

@@ -137,50 +137,40 @@ out how to use the data returned by this API.
 Account Hashes
 ++++++++++++++
 
-Many methods of this API are parametrized by account. However, the API does not 
-accept raw account numbers, but rather account hashes. You can fetch these 
-hashes using the ``get_account_numbers`` method :ref:`(link) 
-<account_hashes_method>`.  This method provides a mapping from raw account 
-number to the account hash that must be passed when referring to that account in 
-API calls.
-
-Here is an example of how to fetch an account hash and use it to place an order:
+Many methods of this API are parametrized by account. Schwab's API doesn't
+accept raw account numbers, but rather account hashes. ``schwab-py`` handles
+this for you: every method that takes an account hash also accepts the plain
+account number, as a ``str`` or an ``int``. The first time you pass an account
+number, the client fetches the mapping from account numbers to hashes using
+:ref:`get_account_numbers <account_hashes_method>` and caches it for the life
+of the client.
 
 .. code-block:: python
 
-  import atexit
-  import httpx
-  from selenium import webdriver
-
   from schwab.auth import easy_client
   from schwab.orders.equities import equity_buy_market
-
-  def make_webdriver():
-      driver = webdriver.Firefox()
-      atexit.register(lambda: driver.quit())
-      return driver
 
   c = easy_client(
           token_path='/path/to/token.json',
           api_key='api-key',
           app_secret='app-secret',
-          callback_url='https://callback.com',
-          webdriver_func=make_webdriver)
+          callback_url='https://127.0.0.1:8182')
 
-  resp = c.get_account_numbers()
-  assert resp.status_code == httpx.codes.OK
+  c.place_order('12345678', equity_buy_market('AAPL', 1))
 
-  # The response has the following structure. If you have multiple linked
-  # accounts, you'll need to inspect this object to find the hash you want:
-  # [
-  #    {
-  #        "accountNumber": "123456789",
-  #        "hashValue":"123ABCXYZ"
-  #    }
-  #]
-  account_hash = resp.json()[0]['hashValue']
+If you need the hash itself, for instance to compare it with an order's
+account, use :meth:`~schwab.client.Client.get_account_hash`:
 
-  c.place_order(account_hash, equity_buy_market('AAPL', 1))
+.. code-block:: python
+
+  account_hash = c.get_account_hash('12345678')
+
+Passing an account number that isn't linked to your token raises
+``ValueError``. If the hashes can't be fetched, for instance because the token
+has expired, :class:`~schwab.utils.AccountHashLookupError` is raised.
+
+.. automethod:: schwab.client.Client.get_account_hash
+.. autoclass:: schwab.utils.AccountHashLookupError
 
 
 

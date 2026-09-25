@@ -38,7 +38,31 @@ class Client(BaseClient):
 
         return resp
 
+    def get_account_hash(self, account_number):
+        '''Returns the account hash for an account number. Hashes are fetched
+        with :meth:`get_account_numbers` the first time they are needed and
+        cached; an unknown account number causes one refetch, in case the
+        account was linked after the cache was filled.
+
+        Every method that takes an account hash also accepts the plain account
+        number and calls this method under the hood, so most users never need
+        to call it directly.
+
+        :raise ValueError: if the account number is not linked to this token.
+        '''
+        if str(account_number) not in self._account_hashes:
+            self._cache_account_hashes(self.get_account_numbers())
+        return self._cached_account_hash(account_number)
+
+    def _resolve_account_path(self, path):
+        account_number = self._account_number_in_path(path)
+        if account_number is None:
+            return path
+        return self._replace_account_number(
+                path, self.get_account_hash(account_number))
+
     def _get_request(self, path, params):
+        path = self._resolve_account_path(path)
         dest = self.base_url + path
 
         req_num = self._req_num()
@@ -51,6 +75,7 @@ class Client(BaseClient):
         return resp
 
     def _post_request(self, path, data):
+        path = self._resolve_account_path(path)
         dest = self.base_url + path
 
         req_num = self._req_num()
@@ -63,6 +88,7 @@ class Client(BaseClient):
         return resp
 
     def _put_request(self, path, data):
+        path = self._resolve_account_path(path)
         dest = self.base_url + path
 
         req_num = self._req_num()
@@ -75,6 +101,7 @@ class Client(BaseClient):
         return resp
 
     def _delete_request(self, path):
+        path = self._resolve_account_path(path)
         dest = self.base_url + path
 
         req_num = self._req_num()

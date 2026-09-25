@@ -43,7 +43,23 @@ class AsyncClient(BaseClient):
 
         return resp
 
+    async def get_account_hash(self, account_number):
+        '''Returns the account hash for an account number. See
+        :meth:`Client.get_account_hash <schwab.client.Client.get_account_hash>`.
+        '''
+        if str(account_number) not in self._account_hashes:
+            self._cache_account_hashes(await self.get_account_numbers())
+        return self._cached_account_hash(account_number)
+
+    async def _resolve_account_path(self, path):
+        account_number = self._account_number_in_path(path)
+        if account_number is None:
+            return path
+        return self._replace_account_number(
+                path, await self.get_account_hash(account_number))
+
     async def _get_request(self, path, params):
+        path = await self._resolve_account_path(path)
         dest = self.base_url + path
 
         req_num = self._req_num()
@@ -56,6 +72,7 @@ class AsyncClient(BaseClient):
         return resp
 
     async def _post_request(self, path, data):
+        path = await self._resolve_account_path(path)
         dest = self.base_url + path
 
         req_num = self._req_num()
@@ -68,6 +85,7 @@ class AsyncClient(BaseClient):
         return resp
 
     async def _put_request(self, path, data):
+        path = await self._resolve_account_path(path)
         dest = self.base_url + path
 
         req_num = self._req_num()
@@ -80,6 +98,7 @@ class AsyncClient(BaseClient):
         return resp
 
     async def _delete_request(self, path):
+        path = await self._resolve_account_path(path)
         dest = self.base_url + path
 
         req_num = self._req_num()

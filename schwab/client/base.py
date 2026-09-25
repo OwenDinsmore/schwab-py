@@ -9,13 +9,14 @@ import datetime
 import json
 import logging
 import pickle
+import re
 import schwab
 import time
 import warnings
 
 from schwab.orders.generic import OrderBuilder
 
-from ..utils import EnumEnforcer
+from ..utils import AccountHashLookupError, EnumEnforcer
 
 
 def get_logger():
@@ -34,6 +35,12 @@ class BaseClient(EnumEnforcer):
     found in the response object's ``json()`` method.'''
 
     DEFAULT_BASE_URL = 'https://api.schwabapi.com'
+
+    # Matches a plain account number, as opposed to an account hash, in an
+    # account-scoped path. Schwab account numbers are eight digits and account
+    # hashes are 64 hexadecimal characters.
+    _ACCOUNT_NUMBER_PATH = re.compile(
+            r'^(/trader/v1/accounts/)(\d{1,12})(?=/|$)')
 
     def __init__(self, api_key, session, *, enforce_enums=True,
                  token_metadata=None, base_url=None):
@@ -57,6 +64,37 @@ class BaseClient(EnumEnforcer):
         schwab.LOG_REDACTOR.register(api_key, 'API_KEY')
 
         self.token_metadata = token_metadata
+
+        # Maps account numbers to account hashes. See get_account_hash().
+        self._account_hashes = {}
+
+    ##########################################################################
+    # Account hash resolution
+
+    def _account_number_in_path(self, path):
+        m = self._ACCOUNT_NUMBER_PATH.match(path)
+        return None if m is None else m.group(2)
+
+    def _replace_account_number(self, path, account_hash):
+        return self._ACCOUNT_NUMBER_PATH.sub(
+                lambda m: m.group(1) + account_hash, path, count=1)
+
+    def _cache_account_hashes(self, resp):
+        if resp.status_code != 200:
+            raise AccountHashLookupError(
+                    resp, 'failed to fetch account hashes: HTTP {}'.format(
+                        resp.status_code))
+        for account in resp.json():
+            self._account_hashes[str(account['accountNumber'])] = \
+                    account['hashValue']
+
+    def _cached_account_hash(self, account_number):
+        try:
+            return self._account_hashes[str(account_number)]
+        except KeyError:
+            raise ValueError(
+                    'account number {} is not among the accounts linked to '
+                    'this token'.format(account_number)) from None
 
         # Set the default timeout configuration
         self.set_timeout(30.0)
@@ -168,6 +206,10 @@ class BaseClient(EnumEnforcer):
         Returns a mapping from account IDs available to this token to the 
         account hash that should be passed whenever referring to that account in 
         API calls.
+
+        Most users don't need to call this directly: every method that takes an
+        account hash also accepts the plain account number, and looks up the
+        hash automatically. See :meth:`get_account_hash`.
         '''
         path = '/trader/v1/accounts/accountNumbers'
         return self._get_request(path, {})

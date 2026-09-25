@@ -84,6 +84,13 @@ class AsyncResync:
             self.func = func
         def __call__(self, *args, **kwargs):
             coroutine = self.func(*args, **kwargs)
+            # Calls made from inside another resynced method, where a loop is
+            # already running, are awaited by their caller.
+            try:
+                asyncio.get_running_loop()
+                return coroutine
+            except RuntimeError:
+                pass
             loop = asyncio.new_event_loop()
             retval = loop.run_until_complete(coroutine)
             loop.close()

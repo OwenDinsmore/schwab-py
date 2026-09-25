@@ -86,6 +86,17 @@ class AccountHashMismatchException(ValueError):
     '''
 
 
+class AccountHashLookupError(Exception):
+    '''
+    Raised when a plain account number is passed where an account hash is
+    expected and the account hashes could not be fetched from Schwab. The
+    failed response is available as ``response``.
+    '''
+    def __init__(self, response, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.response = response
+
+
 class LazyLog:
     'Helper to defer evaluation of expensive variables in log messages'
     def __init__(self, func):
@@ -100,7 +111,8 @@ class Utils(EnumEnforcer):
 
     def __init__(self, client, account_hash):
         '''Creates a new ``Utils`` instance. For convenience, this object
-        assumes the user wants to work with a single account hash at a time.'''
+        assumes the user wants to work with a single account at a time.
+        ``account_hash`` may also be a plain account number.'''
         super().__init__(True)
 
         self.client = client
@@ -144,7 +156,14 @@ class Utils(EnumEnforcer):
             return None
         account_hash, order_id = m.group(1), int(m.group(2))
 
-        if str(account_hash) != str(self.account_hash):
+        # The account may have been given as a plain account number, which the
+        # client resolved to a hash when the order was placed.
+        expected_hash = str(self.account_hash)
+        known_hashes = getattr(self.client, '_account_hashes', None)
+        if isinstance(known_hashes, dict):
+            expected_hash = known_hashes.get(expected_hash, expected_hash)
+
+        if str(account_hash) != expected_hash:
             raise AccountHashMismatchException(
                 'order request account hash != Utils.account_hash')
 
