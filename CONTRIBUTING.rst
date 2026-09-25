@@ -11,24 +11,22 @@ contribute.
 Setting up the Dev Environment
 ------------------------------
 
-Dependencies are listed in the `requirements.txt` file. These development 
-requirements are distinct from the requirements listed in `setup.py` and include 
-some additional packages around testing, documentation generation, etc.
+Dependencies are listed in ``pyproject.toml``. The ``dev`` extra adds packages
+for testing, documentation generation and packaging.
 
-Before you install anything, I highly recommend setting up a `virtualenv` so you 
-don't pollute your system installation directories:
-
-.. code-block:: shell
-
-  pip install virtualenv
-  virtualenv -v virtualenv
-  source virtualenv/bin/activate
-
-Next, install project requirements:
+Before you install anything, I highly recommend setting up a virtual environment
+so you don't pollute your system installation directories:
 
 .. code-block:: shell
 
-  pip install ".[dev]"
+  python3 -m venv .venv
+  source .venv/bin/activate
+
+Next, install the project in editable mode with its development requirements:
+
+.. code-block:: shell
+
+  pip install -e ".[dev]"
 
 Finally, verify everything works by running tests:
 

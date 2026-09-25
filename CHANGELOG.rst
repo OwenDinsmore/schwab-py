@@ -40,6 +40,7 @@ These fix real bugs but may be visible to existing code:
 Fixes
 -----
 
+* Installing schwab-py no longer installs a stray top-level ``tests`` package.
 * Float prices already at the target precision, like ``8.2``, are no longer
   lowered by one tick. This affected about 5% of prices (#239).
 * Response values such as account numbers are redacted from bug report logs
@@ -100,3 +101,10 @@ New features
 * ``LevelOneOptionFields.STRIKE_PRICE``, an accurately named alias for
   ``STRIKE_TYPE`` (#197).
 * ``schwab-py[httpx2]`` extra.
+
+Packaging
+---------
+
+* Packaging moved from ``setup.py`` to ``pyproject.toml``. Build with
+  ``python -m build``.
+* Removed the unused ``python-dateutil`` dependency.

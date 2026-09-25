@@ -11,7 +11,7 @@ coverage:
 	python3 -m coverage html
 
 dist: clean
-	python3 setup.py sdist bdist_wheel
+	python3 -m build
 
 release: clean test dist
 	python3 -m twine upload dist/*
