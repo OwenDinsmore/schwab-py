@@ -305,11 +305,62 @@ Current Quotes
 Option Chains
 +++++++++++++
 
-Unfortunately, option chains are well beyond the ability of your humble author. 
-You are encouraged to read the official API documentation to learn more.
+An option chain lists the option contracts available for an underlying, with
+quotes, greeks and contract details for each. Index underlyings take a ``$``
+prefix, such as ``$SPX``.
 
-If you *are* knowledgeable enough to write something more substantive here, 
-please follow the instructions in :ref:`contributing` to send in a patch.
+**Keep requests narrow.** Chains for heavily traded underlyings are enormous,
+and Schwab rejects requests whose response would be too large with a ``Body
+buffer overflow`` error. Limit the strikes and expirations you ask for:
+
+.. code-block:: python
+
+  import datetime
+
+  resp = client.get_option_chain(
+          'AAPL',
+          contract_type=client.Options.ContractType.CALL,
+          strike_count=10,  # the ten strikes nearest the current price
+          from_date=datetime.date.today(),
+          to_date=datetime.date.today() + datetime.timedelta(days=45))
+  resp.raise_for_status()
+  chain = resp.json()
+
+**Response structure.** Calls and puts are in ``callExpDateMap`` and
+``putExpDateMap``. Each maps an expiration, keyed as ``'YYYY-MM-DD:D'`` where
+``D`` is the number of days to expiration, to a map from strike price, keyed as
+a string like ``'190.0'``, to a list of contracts. The list almost always has
+one element:
+
+.. code-block:: python
+
+  for expiration, strikes in chain['callExpDateMap'].items():
+      date, days_to_expiration = expiration.split(':')
+      for strike, contracts in strikes.items():
+          contract = contracts[0]
+          print(date, strike, contract['symbol'],
+                contract['bid'], contract['ask'], contract['delta'])
+
+Each contract includes, among other fields, its ``symbol``, ``bid``, ``ask``,
+``last``, ``mark``, ``totalVolume``, ``openInterest``, ``volatility`` and the
+greeks ``delta``, ``gamma``, ``theta``, ``vega`` and ``rho``. The chain also
+includes the underlying's price as ``underlyingPrice``, and its full quote as
+``underlying`` if you pass ``include_underlying_quote=True``.
+
+**From a chain to an order.** Contract symbols from the chain can be passed
+directly to the :ref:`option order templates <option_templates>`:
+
+.. code-block:: python
+
+  from schwab.orders.options import option_buy_to_open_limit
+
+  contract = chain['callExpDateMap']['2024-07-19:16']['190.0'][0]
+  order = option_buy_to_open_limit(contract['symbol'], 1, '2.50')
+
+To build a contract symbol yourself, use
+:class:`~schwab.orders.options.OptionSymbol`. To list the expirations available
+for an underlying without fetching a chain, use
+:meth:`~schwab.client.Client.get_option_expiration_chain`.
 
 .. automethod:: schwab.client.Client.get_option_chain
 .. autoclass:: schwab.client.Client.Options

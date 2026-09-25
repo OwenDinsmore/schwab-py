@@ -137,6 +137,8 @@ Buy to cover orders
 .. autofunction:: schwab.orders.equities.equity_buy_to_cover_limit_on_close
 
 
+.. _option_templates:
+
 -----------------
 Options Templates
 -----------------

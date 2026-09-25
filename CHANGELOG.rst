@@ -62,6 +62,9 @@ Fixes
   actual HTTP method.
 * Removed the unused ``python-dateutil`` dependency and dead links to the
   defunct TD Ameritrade developer site.
+* Documented option chains: how to keep requests small enough for Schwab to
+  answer, the structure of the response, and how to go from a chain to an order
+  (#9).
 * Fixed several documentation errors, including the missing
   ``client_from_access_functions`` example (#183, #216), the async client
   example (#188, #199) and the nonexistent ``statuses`` parameter (#195).
