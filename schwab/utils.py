@@ -3,6 +3,8 @@ module.'''
 
 import re
 
+from authlib.integrations.base_client import OAuthError
+
 
 def class_fullname(o):
     return o.__module__ + '.' + o.__name__
@@ -91,6 +93,15 @@ class AccountHashLookupError(Exception):
     def __init__(self, response, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.response = response
+
+
+class RefreshTokenExpiredError(OAuthError):
+    '''
+    Raised when a request fails because the refresh token has expired. Schwab
+    refresh tokens expire seven days after they are created, after which the
+    only remedy is to delete the token file and log in again. Subclasses
+    authlib's ``OAuthError``, which was raised in this case before.
+    '''
 
 
 class LazyLog:

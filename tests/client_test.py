@@ -10,7 +10,8 @@ from unittest.mock import ANY, MagicMock, Mock, call, patch
 from schwab.client import AsyncClient, Client
 from schwab.orders.generic import OrderBuilder
 
-from schwab.utils import AccountHashLookupError
+from authlib.integrations.base_client import OAuthError
+from schwab.utils import AccountHashLookupError, RefreshTokenExpiredError
 from .utils import AsyncMagicMock, MockResponse, ResyncProxy, no_duplicates
 
 # Constants
@@ -86,6 +87,109 @@ class _TestClient:
             transactionId=TRANSACTION_ID,
             watchlistId=WATCHLIST_ID)
         return 'https://api.schwabapi.com' + path
+
+
+    # Refresh token expiry
+
+    DAY = 24 * 60 * 60
+
+    def client_with_token_age(self, age):
+        token_metadata = MagicMock()
+        token_metadata.token_age.return_value = age
+        client = self.client_class(
+                API_KEY, self.mock_session, token_metadata=token_metadata)
+        return client
+
+    def test_refresh_token_expires_in(self):
+        client = self.client_with_token_age(6 * self.DAY)
+        self.assertEqual(self.DAY, client.refresh_token_expires_in())
+
+    def test_refresh_token_expires_in_without_metadata(self):
+        self.assertIsNone(self.client.refresh_token_expires_in())
+
+    def test_no_expiry_warning_early(self):
+        client = self.client_with_token_age(5 * self.DAY)
+        with self.assertNoLogs('schwab.client.base', level='WARNING'):
+            client.get_account_numbers()
+
+    def test_expiry_warning_and_callback(self):
+        client = self.client_with_token_age(7 * self.DAY - 7200)
+        callback = Mock()
+        client.set_refresh_token_expiry_warning(callback=callback)
+
+        with self.assertLogs('schwab.client.base', level='WARNING') as logs:
+            client.get_account_numbers()
+
+        self.assertIn('expires in 2.0 hours', logs.output[0])
+        callback.assert_called_once_with(7200)
+
+    @patch('schwab.client.base.time.monotonic')
+    def test_expiry_warning_at_most_hourly(self, monotonic):
+        client = self.client_with_token_age(7 * self.DAY - 7200)
+        callback = Mock()
+        client.set_refresh_token_expiry_warning(callback=callback)
+
+        monotonic.return_value = 1000
+        client.get_account_numbers()
+        monotonic.return_value = 1000 + 3599
+        client.get_account_numbers()
+        self.assertEqual(1, callback.call_count)
+
+        monotonic.return_value = 1000 + 3600
+        client.get_account_numbers()
+        self.assertEqual(2, callback.call_count)
+
+    def test_expiry_warning_custom_window(self):
+        client = self.client_with_token_age(5 * self.DAY)
+        callback = Mock()
+        client.set_refresh_token_expiry_warning(
+                warn_before=3 * self.DAY, callback=callback)
+
+        with self.assertLogs('schwab.client.base', level='WARNING'):
+            client.get_account_numbers()
+        callback.assert_called_once_with(2 * self.DAY)
+
+    def test_expiry_warning_disabled(self):
+        client = self.client_with_token_age(7 * self.DAY - 60)
+        client.set_refresh_token_expiry_warning(warn_before=None)
+        with self.assertNoLogs('schwab.client.base', level='WARNING'):
+            client.get_account_numbers()
+
+    def test_expired_warning(self):
+        client = self.client_with_token_age(7 * self.DAY + 3600)
+        with self.assertLogs('schwab.client.base', level='WARNING') as logs:
+            client.get_account_numbers()
+        self.assertIn('expired 1.0 hours ago', logs.output[0])
+
+    def test_expiry_callback_exception_contained(self):
+        client = self.client_with_token_age(7 * self.DAY - 60)
+        client.set_refresh_token_expiry_warning(
+                callback=Mock(side_effect=RuntimeError()))
+        with self.assertLogs('schwab.client.base', level='WARNING'):
+            client.get_account_numbers()
+
+    def test_oauth_error_with_expired_token(self):
+        client = self.client_with_token_age(8 * self.DAY)
+        client.set_refresh_token_expiry_warning(warn_before=None)
+        self.mock_session.get.side_effect = OAuthError(
+                'invalid_client', 'refresh token invalid')
+
+        with self.assertRaises(RefreshTokenExpiredError) as cm:
+            client.get_account_numbers()
+
+        self.assertIsInstance(cm.exception, OAuthError)
+        self.assertEqual('invalid_client', cm.exception.error)
+        self.assertIn('expired 24.0 hours ago', cm.exception.description)
+
+    def test_oauth_error_with_valid_token_unchanged(self):
+        client = self.client_with_token_age(self.DAY)
+        error = OAuthError('invalid_client', 'something else')
+        self.mock_session.post.side_effect = error
+
+        with self.assertRaises(OAuthError) as cm:
+            client.place_order(ACCOUNT_HASH, {})
+        self.assertIs(error, cm.exception)
+        self.assertNotIsInstance(cm.exception, RefreshTokenExpiredError)
 
 
     # Request logging

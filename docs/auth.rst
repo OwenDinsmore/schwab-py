@@ -130,6 +130,29 @@ age of the token <schwab.client.Client.token_age>`. Note, however, that the
 seven day token age restriction is implemented by Schwab, and so the token may 
 become expired sooner *or* later than seven days.
 
+Programs that run for days at a time can't rely on checking the token when they
+start. Clients warn you as expiry approaches: during the token's last day, each
+request logs a warning at most once an hour. To be alerted another way, for
+instance by email or a push notification, register a callback:
+
+.. code-block:: python
+
+  def token_expiring(seconds_remaining):
+      send_myself_an_alert(
+          'Schwab token expires in {:.0f} hours'.format(seconds_remaining / 3600))
+
+  client.set_refresh_token_expiry_warning(
+          warn_before=2 * 24 * 60 * 60,  # start warning two days out
+          callback=token_expiring)
+
+Once the token has expired, requests raise
+:class:`~schwab.utils.RefreshTokenExpiredError` rather than a generic OAuth
+error.
+
+.. automethod:: schwab.client.Client.refresh_token_expires_in
+.. automethod:: schwab.client.Client.set_refresh_token_expiry_warning
+.. autoclass:: schwab.utils.RefreshTokenExpiredError
+
 
 .. _sharing_tokens:
 

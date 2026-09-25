@@ -6,12 +6,14 @@ from enum import Enum
 
 import datetime
 import logging
+import time
 import re
 import schwab
 
 from schwab.orders.generic import OrderBuilder
 
 from ..utils import AccountHashLookupError, EnumEnforcer
+from ..utils import RefreshTokenExpiredError
 
 
 def get_logger():
@@ -30,6 +32,12 @@ class BaseClient(EnumEnforcer):
     found in the response object's ``json()`` method.'''
 
     DEFAULT_BASE_URL = 'https://api.schwabapi.com'
+
+    #: Schwab refresh tokens expire this many seconds after they are created.
+    REFRESH_TOKEN_LIFETIME = 7 * 24 * 60 * 60
+
+    # Minimum time between repeated refresh token expiry warnings
+    _EXPIRY_WARNING_INTERVAL = 60 * 60
 
     # Matches a plain account number, as opposed to an account hash, in an
     # account-scoped path. Schwab account numbers are eight digits and account
@@ -62,6 +70,86 @@ class BaseClient(EnumEnforcer):
 
         # Maps account numbers to account hashes. See get_account_hash().
         self._account_hashes = {}
+
+        # See set_refresh_token_expiry_warning()
+        self._expiry_warn_before = 24 * 60 * 60
+        self._expiry_callback = None
+        self._last_expiry_warning = None
+
+    ##########################################################################
+    # Refresh token expiry
+
+    def refresh_token_expires_in(self):
+        '''Returns the number of seconds until this client's refresh token
+        expires, which is negative once it has expired, or ``None`` if the
+        client has no token metadata. Schwab refresh tokens expire seven days
+        after they are created, after which you must log in again to create a
+        new token.'''
+        if self.token_metadata is None:
+            return None
+        return self.REFRESH_TOKEN_LIFETIME - self.token_metadata.token_age()
+
+    def set_refresh_token_expiry_warning(self, warn_before=24 * 60 * 60,
+                                         callback=None):
+        '''Configures the warning emitted as the refresh token approaches its
+        seven day expiry. Once fewer than ``warn_before`` seconds remain, each
+        request checks the expiry, and at most once an hour logs a warning and
+        calls ``callback``, if given.
+
+        By default, a warning is logged during the last day. Use the callback
+        to alert yourself, for example by email, so that you can log in again
+        before the token expires and your program stops working.
+
+        :param warn_before: Seconds before expiry at which to start warning.
+                            Set to ``None`` to disable the warning.
+        :param callback: Called as ``callback(seconds_remaining)``. Exceptions
+                         it raises are logged and otherwise ignored.
+        '''
+        self._expiry_warn_before = warn_before
+        self._expiry_callback = callback
+        self._last_expiry_warning = None
+
+    def _check_refresh_token_expiry(self):
+        if self._expiry_warn_before is None:
+            return
+        remaining = self.refresh_token_expires_in()
+        if remaining is None or remaining > self._expiry_warn_before:
+            return
+
+        now = time.monotonic()
+        if (self._last_expiry_warning is not None and
+                now - self._last_expiry_warning < self._EXPIRY_WARNING_INTERVAL):
+            return
+        self._last_expiry_warning = now
+
+        if remaining > 0:
+            self.logger.warning(
+                    'The refresh token expires in %.1f hours. Log in again to '
+                    'create a new token before then.', remaining / 3600)
+        else:
+            self.logger.warning(
+                    'The refresh token expired %.1f hours ago. Log in again to '
+                    'create a new token.', -remaining / 3600)
+
+        if self._expiry_callback is not None:
+            try:
+                self._expiry_callback(remaining)
+            except Exception:
+                self.logger.exception('Refresh token expiry callback raised')
+
+    def _translate_oauth_error(self, error):
+        '''Returns a clearer exception for OAuth errors caused by an expired
+        refresh token, or the original error otherwise.'''
+        remaining = self.refresh_token_expires_in()
+        if remaining is None or remaining > 0:
+            return error
+        return RefreshTokenExpiredError(
+                error.error,
+                'The refresh token expired {:.1f} hours ago. Refresh tokens '
+                'expire seven days after they are created; delete the token '
+                'file and log in again to create a new one. Original '
+                'error: {}'.format(-remaining / 3600, error.description),
+                error.uri)
 
     ##########################################################################
     # Account hash resolution

@@ -1,6 +1,7 @@
 from .base import BaseClient
 from ..utils import LazyLog
 from ..debug import register_redactions_from_response
+from authlib.integrations.base_client import OAuthError
 
 from .._http import httpx
 import json
@@ -69,7 +70,14 @@ class Client(BaseClient):
         self.logger.debug('Req %s: GET to %s, params=%s',
                 req_num, dest, LazyLog(lambda: json.dumps(params, indent=4)))
 
-        resp = self.session.get(dest, params=params)
+        self._check_refresh_token_expiry()
+        try:
+            resp = self.session.get(dest, params=params)
+        except OAuthError as e:
+            translated = self._translate_oauth_error(e)
+            if translated is e:
+                raise
+            raise translated from e
         self._log_response(resp, req_num, 'GET')
         register_redactions_from_response(resp)
         return resp
@@ -82,7 +90,14 @@ class Client(BaseClient):
         self.logger.debug('Req %s: POST to %s, json=%s',
             req_num, dest, LazyLog(lambda: json.dumps(data, indent=4)))
 
-        resp = self.session.post(dest, json=data)
+        self._check_refresh_token_expiry()
+        try:
+            resp = self.session.post(dest, json=data)
+        except OAuthError as e:
+            translated = self._translate_oauth_error(e)
+            if translated is e:
+                raise
+            raise translated from e
         self._log_response(resp, req_num, 'POST')
         register_redactions_from_response(resp)
         return resp
@@ -95,7 +110,14 @@ class Client(BaseClient):
         self.logger.debug('Req %s: PUT to %s, json=%s',
             req_num, dest, LazyLog(lambda: json.dumps(data, indent=4)))
 
-        resp = self.session.put(dest, json=data)
+        self._check_refresh_token_expiry()
+        try:
+            resp = self.session.put(dest, json=data)
+        except OAuthError as e:
+            translated = self._translate_oauth_error(e)
+            if translated is e:
+                raise
+            raise translated from e
         self._log_response(resp, req_num, 'PUT')
         register_redactions_from_response(resp)
         return resp
@@ -107,7 +129,14 @@ class Client(BaseClient):
         req_num = self._req_num()
         self.logger.debug('Req %s: DELETE to %s', req_num, dest)
 
-        resp = self.session.delete(dest)
+        self._check_refresh_token_expiry()
+        try:
+            resp = self.session.delete(dest)
+        except OAuthError as e:
+            translated = self._translate_oauth_error(e)
+            if translated is e:
+                raise
+            raise translated from e
         self._log_response(resp, req_num, 'DELETE')
         register_redactions_from_response(resp)
         return resp

@@ -52,6 +52,10 @@ Fixes
 * schwab-py uses the same HTTP library as authlib, which prefers ``httpx2``
   when it is installed (#268).
 * ``easy_client`` honors ``asyncio=True`` when run in a notebook.
+* DELETE requests are logged correctly, and responses are logged with their
+  actual HTTP method.
+* Removed the unused ``python-dateutil`` dependency and dead links to the
+  defunct TD Ameritrade developer site.
 * Fixed several documentation errors, including the missing
   ``client_from_access_functions`` example (#183, #216), the async client
   example (#188, #199) and the nonexistent ``statuses`` parameter (#195).
@@ -59,6 +63,14 @@ Fixes
 New features
 ------------
 
+* Clients warn as the seven-day refresh token expiry approaches, and can call
+  a function you provide so you can log in again in time. Requests made with an
+  expired refresh token raise ``RefreshTokenExpiredError``, a subclass of the
+  ``OAuthError`` raised before.
+* ``client_from_login_flow`` works on machines without a browser, printing the
+  login URL instead of crashing (#166).
+* Leading and trailing whitespace is stripped from API keys and secrets, with a
+  warning (#152).
 * Every method that takes an account hash also accepts the plain account
   number. Hashes are looked up and cached automatically; see
   ``Client.get_account_hash()`` (#6).
