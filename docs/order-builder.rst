@@ -73,7 +73,7 @@ Some key points are:
 
 If this seems like a lot of detail to specify a rather simple order, it is. The 
 thing about the order spec object is that it can express *every* order that can 
-be made through the TD Ameritrade API. For an advanced example, here is a order 
+be made through the Schwab API. For an advanced example, here is a order 
 spec for a standing order to enter a long position in ``GOOG`` at $1310 or less 
 that triggers a one-cancels-other order that exits the position if the price 
 rises to $1400 or falls below $1250:
@@ -203,7 +203,7 @@ process looks like this:
 .. code-block:: shell
 
   # Notice we don't prefix this with "python" because this is a script that was 
-  # installed by pip when you installed tda-api
+  # installed by pip when you installed schwab-py
   schwab-order-codegen.py --token_file <your token file path> --api_key <your 
   API key>
 

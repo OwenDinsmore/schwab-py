@@ -52,6 +52,12 @@ run this outside regular trading hours you may not see anything):
   asyncio.run(read_stream())
 
 
+Schwab's official documentation for the streaming API, including the meaning
+of every field, is available on the `Schwab developer portal
+<https://developer.schwab.com/>`__ once you are logged in, under the Market Data
+Production API.
+
+
 ++++++++++++
 Use Overview
 ++++++++++++

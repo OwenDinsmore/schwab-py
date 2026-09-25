@@ -7,7 +7,7 @@ assignees: ''
 
 ---
 
-## Please read the [bug submission guidelines](https://tda-api.readthedocs.io/en/latest/help.html) before submitting a bug.
+## Please read the [bug submission guidelines](https://schwab-py.readthedocs.io/en/latest/help.html) before submitting a bug.
 
 Not following guidelines may result in your bug being ignored and/or closed. 
 
@@ -26,4 +26,4 @@ IMPORTANT: Remember to anonymize your code. Be sure to replace API keys/Client I
 <ACTUAL BEHAVIOR>
 
 **Error/Exception Log, If Applicable**
-See here to learn how to turn on debug logging: https://tda-api.readthedocs.io/en/latest/help.html
+See here to learn how to turn on debug logging: https://schwab-py.readthedocs.io/en/latest/help.html

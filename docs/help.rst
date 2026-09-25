@@ -140,5 +140,5 @@ may be be closed if:
  * You do not follow the issue template. We're not *super* strict about this 
    one, but you should at least include all the information it asks for.
 
-You can file an issue on our `GitHub page <https://github.com/alexgolec/tda-api/
+You can file an issue on our `GitHub page <https://github.com/alexgolec/schwab-py/
 issues>`__.
