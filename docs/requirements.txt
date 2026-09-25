@@ -6,6 +6,5 @@ httpx==0.28.1
 multiprocess==0.70.16
 prompt_toolkit==3.0.43
 psutil==5.9.8
-python-dateutil==2.9.0.post0
 sphinx-rtd-theme==2.0.0
 websockets==17.1

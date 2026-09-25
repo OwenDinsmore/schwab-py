@@ -392,8 +392,6 @@ def first_triggers_second(first_order, second_order):
     '''
     If ``first_order`` is executed, immediately place ``second_order``.
     '''
-    from schwab.orders.generic import OrderBuilder
-
     return (first_order
             .set_order_strategy_type(OrderStrategyType.TRIGGER)
             .add_child_order_strategy(second_order))

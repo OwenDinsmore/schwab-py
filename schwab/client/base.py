@@ -2,17 +2,12 @@
 completely unopinionated, and provides an easy-to-use wrapper around the TD
 Ameritrade HTTP API.'''
 
-from abc import ABC, abstractmethod
 from enum import Enum
 
 import datetime
-import json
 import logging
-import pickle
 import re
 import schwab
-import time
-import warnings
 
 from schwab.orders.generic import OrderBuilder
 
@@ -105,9 +100,9 @@ class BaseClient(EnumEnforcer):
     _DATETIME = datetime.datetime
     _DATE = datetime.date
 
-    def _log_response(self, resp, req_num):
-        self.logger.debug('Req %s: GET response: %s, content=%s',
-            req_num, resp.status_code, resp.text)
+    def _log_response(self, resp, req_num, method):
+        self.logger.debug('Req %s: %s response: %s, content=%s',
+            req_num, method, resp.status_code, resp.text)
 
     def _req_num(self):
         self.request_number += 1
@@ -849,7 +844,7 @@ class BaseClient(EnumEnforcer):
         if need_previous_close is not None:
             params['needPreviousClose'] = need_previous_close
 
-        path = '/marketdata/v1/pricehistory'.format(symbol)
+        path = '/marketdata/v1/pricehistory'
         return self._get_request(path, params)
 
 

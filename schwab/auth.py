@@ -364,8 +364,6 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
                         'Redirect server exited. Are you attempting to use a ' +
                         'callback URL without a port number specified?')
 
-            import traceback
-
             # Attempt to send a request to the server
             try:
                 with warnings.catch_warnings():
@@ -373,11 +371,11 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
                             'ignore',
                             category=urllib3.exceptions.InsecureRequestWarning)
 
-                    resp = httpx.get(
+                    httpx.get(
                             'https://127.0.0.1:{}/schwab-py-internal/status'.format(
                                 callback_port), verify=False)
                 break
-            except httpx.ConnectError as e:
+            except httpx.ConnectError:
                 pass
 
             time.sleep(0.1)

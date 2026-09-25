@@ -37,7 +37,6 @@ setuptools.setup(
         'httpx>=0.28.1',
         'multiprocess',
         'psutil',
-        'python-dateutil',
         'urllib3',
         'websockets>=13.0'
     ],

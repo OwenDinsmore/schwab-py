@@ -88,6 +88,25 @@ class _TestClient:
         return 'https://api.schwabapi.com' + path
 
 
+    # Request logging
+
+    def test_request_logs_name_method_and_url(self):
+        self.mock_session.delete.return_value = MockResponse({}, 200)
+        with self.assertLogs('schwab.client.base', level='DEBUG') as logs:
+            self.client.cancel_order(ORDER_ID, ACCOUNT_HASH)
+
+        url = self.make_url('/trader/v1/accounts/{accountHash}/orders/{orderId}')
+        self.assertIn('DELETE to ' + url, logs.output[0])
+        self.assertIn('DELETE response: 200', logs.output[1])
+
+    def test_post_response_logged_as_post(self):
+        self.mock_session.post.return_value = MockResponse({}, 201)
+        with self.assertLogs('schwab.client.base', level='DEBUG') as logs:
+            self.client.place_order(ACCOUNT_HASH, {'order': 'spec'})
+
+        self.assertIn('POST response: 201', logs.output[1])
+
+
     # Account hash resolution
 
     ACCOUNT_NUMBER = '12345678'

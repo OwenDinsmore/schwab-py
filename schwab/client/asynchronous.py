@@ -67,7 +67,7 @@ class AsyncClient(BaseClient):
                 req_num, dest, LazyLog(lambda: json.dumps(params, indent=4)))
 
         resp = await self.session.get(dest, params=params)
-        self._log_response(resp, req_num)
+        self._log_response(resp, req_num, 'GET')
         register_redactions_from_response(resp)
         return resp
 
@@ -80,7 +80,7 @@ class AsyncClient(BaseClient):
                 req_num, dest, LazyLog(lambda: json.dumps(data, indent=4)))
 
         resp = await self.session.post(dest, json=data)
-        self._log_response(resp, req_num)
+        self._log_response(resp, req_num, 'POST')
         register_redactions_from_response(resp)
         return resp
 
@@ -93,7 +93,7 @@ class AsyncClient(BaseClient):
                 req_num, dest, LazyLog(lambda: json.dumps(data, indent=4)))
 
         resp = await self.session.put(dest, json=data)
-        self._log_response(resp, req_num)
+        self._log_response(resp, req_num, 'PUT')
         register_redactions_from_response(resp)
         return resp
 
@@ -105,6 +105,6 @@ class AsyncClient(BaseClient):
         self.logger.debug('Req %s: DELETE to %s', req_num, dest)
 
         resp = await self.session.delete(dest)
-        self._log_response(resp, req_num)
+        self._log_response(resp, req_num, 'DELETE')
         register_redactions_from_response(resp)
         return resp

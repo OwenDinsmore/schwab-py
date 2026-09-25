@@ -1,5 +1,3 @@
-from enum import Enum
-
 from schwab.orders.common import Duration, Session, StopPriceLinkBasis
 
 

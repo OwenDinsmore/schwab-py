@@ -1,7 +1,6 @@
 import decimal
 import warnings
 
-from enum import Enum
 
 from schwab.orders import common
 from schwab.utils import EnumEnforcer
