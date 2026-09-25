@@ -235,6 +235,53 @@ called as ``callback(exception, message)`` for both plain and coroutine
 handlers.
 
 
+-----------
+Aggregators
+-----------
+
+Many programs only need the latest quote for each symbol, or bars longer than
+one minute. ``schwab.contrib.aggregators`` provides handlers that collect
+streaming data into state you can read whenever you like.
+
+Level one streams only send the fields that changed since the last message, so
+reading a complete quote means merging messages together.
+:class:`~schwab.contrib.aggregators.LevelOneQuotes` does that for you:
+
+.. code-block:: python
+
+  from schwab.contrib.aggregators import LevelOneQuotes
+
+  quotes = LevelOneQuotes()
+  stream_client.add_level_one_equity_handler(quotes)
+  await stream_client.level_one_equity_subs(['AAPL', 'MSFT'])
+
+  while True:
+      await stream_client.handle_message()
+      if 'AAPL' in quotes:
+          print(quotes['AAPL']['BID_PRICE'], quotes['AAPL']['ASK_PRICE'])
+
+The chart streams send one-minute candles.
+:class:`~schwab.contrib.aggregators.BarAggregator` combines them into longer
+bars:
+
+.. code-block:: python
+
+  from schwab.contrib.aggregators import BarAggregator
+
+  async def on_bar(bar):
+      print(bar['symbol'], bar['open'], bar['high'], bar['low'], bar['close'])
+
+  five_minute_bars = BarAggregator(5, callback=on_bar)
+  stream_client.add_chart_equity_handler(five_minute_bars)
+  await stream_client.chart_equity_subs(['AAPL'])
+
+.. autoclass:: schwab.contrib.aggregators.LevelOneQuotes
+  :members:
+  :special-members: __getitem__
+.. autoclass:: schwab.contrib.aggregators.BarAggregator
+  :members: bars, latest
+
+
 ---------------------
 Data Field Relabeling
 ---------------------

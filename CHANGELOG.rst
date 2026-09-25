@@ -79,6 +79,10 @@ New features
 * A warning explains how to narrow requests that Schwab rejects with
   ``Body buffer overflow`` because the response would be too large, as happens
   with full option chains for symbols like ``$SPX``.
+* Stream aggregators in ``schwab.contrib.aggregators`` (#129):
+  ``LevelOneQuotes`` merges level one updates into the latest full quote per
+  symbol, and ``BarAggregator`` combines one-minute chart candles into longer
+  bars.
 * ``schwab.utils.trim_candles()`` trims price history to a time range, since
   Schwab returns whole days for intraday frequencies (#148).
 * Optional client-side rate limiting with ``set_rate_limit()``, and automatic
