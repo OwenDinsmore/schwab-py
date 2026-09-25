@@ -63,6 +63,9 @@ Fixes
 New features
 ------------
 
+* ``StreamClient.reconnect()`` logs in again and restores all subscriptions
+  after a dropped connection, and ``auto_reconnect=True`` makes
+  ``handle_message()`` do so automatically, with exponential backoff.
 * A warning explains how to narrow requests that Schwab rejects with
   ``Body buffer overflow`` because the response would be too large, as happens
   with full option chains for symbols like ``$SPX``.

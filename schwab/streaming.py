@@ -12,6 +12,7 @@ import schwab
 import warnings
 
 import websockets.asyncio.client as ws_client
+import websockets.exceptions
 
 from .utils import EnumEnforcer, LazyLog
 
@@ -116,7 +117,8 @@ class StreamClient(EnumEnforcer):
 
     def __init__(self, client, *, account_id=None,
                  enforce_enums=True, ssl_context=None, response_timeout=30.0,
-                 handler_error_callback=None):
+                 handler_error_callback=None, auto_reconnect=False,
+                 max_reconnect_attempts=None):
         '''
         :param response_timeout: Maximum number of seconds to wait for the
                                  server to answer a request such as a login or
@@ -129,8 +131,28 @@ class StreamClient(EnumEnforcer):
                                        function or a coroutine. Handler errors
                                        are always logged; the remaining
                                        handlers still run.
+        :param auto_reconnect: If the connection is lost while
+                               :meth:`handle_message` is waiting for a message,
+                               reconnect and restore all subscriptions
+                               instead of raising. See :meth:`reconnect`.
+        :param max_reconnect_attempts: With ``auto_reconnect``, the number of
+                                       consecutive failed reconnection attempts
+                                       after which to give up and raise.
+                                       ``None``, the default, retries forever,
+                                       backing off up to a minute between
+                                       attempts.
         '''
         super().__init__(enforce_enums)
+
+        self._auto_reconnect = auto_reconnect
+        self._max_reconnect_attempts = max_reconnect_attempts
+
+        # Arguments of the most recent login(), reused when reconnecting
+        self._websocket_connect_args = None
+
+        # Maps service names to the keys and fields currently subscribed, so
+        # subscriptions can be restored after reconnecting
+        self._subscriptions = {}
 
         self._response_timeout = response_timeout
         self._handler_error_callback = handler_error_callback
@@ -376,9 +398,97 @@ class StreamClient(EnumEnforcer):
             await self._send_and_await_response(
                     request, request_id, service, command)
 
+        self._record_subscription(service, command, parameters)
+
+    def _record_subscription(self, service, command, parameters):
+        keys = [k for k in parameters['keys'].split(',') if k]
+        fields = parameters.get('fields')
+
+        if command == 'SUBS':
+            self._subscriptions[service] = {'keys': keys, 'fields': fields}
+        elif command == 'ADD':
+            sub = self._subscriptions.setdefault(
+                    service, {'keys': [], 'fields': fields})
+            sub['keys'] += [k for k in keys if k not in sub['keys']]
+            if fields is not None:
+                sub['fields'] = fields
+        elif command == 'UNSUBS':
+            sub = self._subscriptions.get(service)
+            if sub is not None:
+                sub['keys'] = [k for k in sub['keys'] if k not in keys]
+                if not sub['keys']:
+                    del self._subscriptions[service]
+
+    ##########################################################################
+    # RECONNECTING
+
+    async def reconnect(self):
+        '''
+        Replaces the connection with a new one: closes the current connection,
+        if any, logs in again using the arguments of the last :meth:`login`,
+        and restores every subscription made since then. Handlers are kept.
+
+        Use this to recover when the connection drops, for instance when
+        :meth:`handle_message` raises
+        ``websockets.exceptions.ConnectionClosed``. Pass
+        ``auto_reconnect=True`` to the constructor to have
+        :meth:`handle_message` do this for you.
+        '''
+        subscriptions = copy.deepcopy(self._subscriptions)
+
+        await self._close_socket()
+        await self.login(self._websocket_connect_args)
+
+        for service, sub in subscriptions.items():
+            keys = sub['keys']
+            # Account activity is keyed by the stream correlation ID, which
+            # changes with every login
+            if service == 'ACCT_ACTIVITY':
+                keys = [self._stream_correl_id]
+
+            parameters = {'keys': ','.join(keys)}
+            if sub['fields'] is not None:
+                parameters['fields'] = sub['fields']
+
+            request, request_id = self._make_request(
+                    service=service, command='SUBS', parameters=parameters)
+            async with self._lock:
+                await self._send_and_await_response(
+                        request, request_id, service, 'SUBS')
+            self._record_subscription(service, 'SUBS', parameters)
+
+        self.logger.info('Reconnected and restored %s subscription(s)',
+                         len(subscriptions))
+
+    async def _reconnect_with_backoff(self, cause):
+        attempt = 0
+        while True:
+            attempt += 1
+            delay = min(2 ** (attempt - 1), 60)
+            self.logger.warning(
+                    'Stream connection lost (%s). Reconnecting in %s seconds, '
+                    'attempt %s', cause, delay, attempt)
+            await asyncio.sleep(delay)
+            try:
+                await self.reconnect()
+                return
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                if (self._max_reconnect_attempts is not None
+                        and attempt >= self._max_reconnect_attempts):
+                    raise
+                cause = e
+
     async def handle_message(self):
-        async with self._lock:
-            msg = await self._receive()
+        try:
+            async with self._lock:
+                msg = await self._receive()
+        except (websockets.exceptions.ConnectionClosed, OSError) as e:
+            if not self._auto_reconnect or self._websocket_connect_args is None:
+                raise
+            await self._reconnect_with_backoff(e)
+            return
 
         # response
         if 'response' in msg:
@@ -456,6 +566,10 @@ class StreamClient(EnumEnforcer):
                                        for details.
         '''
 
+        self._websocket_connect_args = (
+                dict(websocket_connect_args) if websocket_connect_args else {})
+        self._subscriptions = {}
+
         # Fetch required data and initialize the client
         r = self._client.get_user_preferences()
 
@@ -519,11 +633,20 @@ class StreamClient(EnumEnforcer):
               await stream_client.login()
               ...
         '''
+        self._subscriptions = {}
+        await self._close_socket()
+
+    async def _close_socket(self):
         socket, self._socket = self._socket, None
         self._overflow_items.clear()
         self._abandoned_request_ids.clear()
         if socket is not None:
-            await socket.close()
+            try:
+                await socket.close()
+            except Exception as e:
+                # The connection may already be broken, which is often why
+                # it's being closed
+                self.logger.debug('Error closing stream connection: %s', e)
 
     async def __aenter__(self):
         return self

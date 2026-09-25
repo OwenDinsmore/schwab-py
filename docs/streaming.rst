@@ -97,6 +97,42 @@ use the client as an ``async with`` context manager, as in the example above.
 .. automethod:: schwab.streaming.StreamClient.close
 
 
+------------
+Reconnecting
+------------
+
+Stream connections drop from time to time, for instance during network
+interruptions or Schwab maintenance. When that happens,
+:meth:`~StreamClient.handle_message` raises
+``websockets.exceptions.ConnectionClosed``. The client remembers your
+subscriptions, so recovering takes one call to :meth:`~StreamClient.reconnect`,
+which logs in again and restores them. Your handlers are kept:
+
+.. code-block:: python
+
+  import websockets.exceptions
+
+  while True:
+      try:
+          await stream_client.handle_message()
+      except websockets.exceptions.ConnectionClosed:
+          await stream_client.reconnect()
+
+Or let the client do this for you. With ``auto_reconnect=True``,
+:meth:`~StreamClient.handle_message` reconnects whenever the connection is
+lost, waiting between attempts with exponential backoff up to one minute:
+
+.. code-block:: python
+
+  stream_client = StreamClient(client, auto_reconnect=True)
+
+Pass ``max_reconnect_attempts`` to give up and raise after that many
+consecutive failures instead of retrying forever. Messages sent while the
+connection was down are not recovered.
+
+.. automethod:: schwab.streaming.StreamClient.reconnect
+
+
 ----------------------
 Timeouts
 ----------------------

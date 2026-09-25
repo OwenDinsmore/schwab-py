@@ -1,4 +1,5 @@
 import asyncio
+import websockets.exceptions
 import schwab
 import urllib.parse
 import json
@@ -5833,6 +5834,229 @@ class StreamClientTest(IsolatedAsyncioTestCase):
 
         ws_connect.assert_awaited_once_with(
                 ANY, additional_headers={'k': 'v'})
+
+    ###########################################################################
+    # Reconnecting
+
+    def new_socket(self, ws_connect, recv):
+        socket = AsyncMock()
+        socket.recv.side_effect = recv
+        ws_connect.return_value = socket
+        return socket
+
+    def sent_requests(self, socket):
+        return [json.loads(c[0][0])['requests'][0]
+                for c in socket.send.call_args_list]
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_subscriptions_tracked(self, ws_connect):
+        socket = await self.login_and_get_socket(ws_connect)
+        socket.recv.side_effect = [
+            json.dumps(self.success_response(1, 'CHART_EQUITY', 'SUBS')),
+            json.dumps(self.success_response(2, 'CHART_EQUITY', 'ADD')),
+            json.dumps(self.success_response(3, 'CHART_EQUITY', 'UNSUBS')),
+        ]
+
+        await self.client.chart_equity_subs(['GOOG', 'MSFT'])
+        await self.client.chart_equity_add(['AAPL', 'GOOG'])
+        await self.client.chart_equity_unsubs(['MSFT'])
+
+        self.assertEqual(['GOOG', 'AAPL'],
+                         self.client._subscriptions['CHART_EQUITY']['keys'])
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_unsubscribing_everything_removes_service(self, ws_connect):
+        socket = await self.login_and_get_socket(ws_connect)
+        socket.recv.side_effect = [
+            json.dumps(self.success_response(1, 'CHART_EQUITY', 'SUBS')),
+            json.dumps(self.success_response(2, 'CHART_EQUITY', 'UNSUBS')),
+        ]
+
+        await self.client.chart_equity_subs(['GOOG,MSFT'])
+        await self.client.chart_equity_unsubs(['GOOG', 'MSFT'])
+
+        self.assertNotIn('CHART_EQUITY', self.client._subscriptions)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_failed_subscription_not_tracked(self, ws_connect):
+        socket = await self.login_and_get_socket(ws_connect)
+        response = self.success_response(1, 'CHART_EQUITY', 'SUBS')
+        response['response'][0]['content']['code'] = 21
+        socket.recv.side_effect = [json.dumps(response)]
+
+        with self.assertRaises(schwab.streaming.UnexpectedResponseCode):
+            await self.client.chart_equity_subs(['GOOG'])
+
+        self.assertNotIn('CHART_EQUITY', self.client._subscriptions)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_reconnect_restores_subscriptions(self, ws_connect):
+        old_socket = await self.login_and_get_socket(ws_connect)
+        old_socket.recv.side_effect = [
+            json.dumps(self.success_response(1, 'CHART_EQUITY', 'SUBS')),
+            json.dumps(self.success_response(
+                2, 'LEVELONE_EQUITIES', 'SUBS')),
+        ]
+        await self.client.chart_equity_subs(['GOOG', 'MSFT'])
+        await self.client.level_one_equity_subs(['AAPL'], fields=[
+            StreamClient.LevelOneEquityFields.SYMBOL,
+            StreamClient.LevelOneEquityFields.BID_PRICE])
+
+        handler = Mock()
+        self.client.add_chart_equity_handler(handler)
+
+        new_socket = self.new_socket(ws_connect, [
+            json.dumps(self.success_response(3, 'ADMIN', 'LOGIN')),
+            json.dumps(self.success_response(4, 'CHART_EQUITY', 'SUBS')),
+            json.dumps(self.success_response(
+                5, 'LEVELONE_EQUITIES', 'SUBS')),
+            json.dumps(self.streaming_entry('CHART_EQUITY', 'SUBS')),
+        ])
+
+        await self.client.reconnect()
+
+        old_socket.close.assert_awaited_once()
+        requests = self.sent_requests(new_socket)
+        self.assertEqual(['LOGIN', 'SUBS', 'SUBS'],
+                         [r['command'] for r in requests])
+        self.assertEqual({'keys': 'GOOG,MSFT', 'fields': '0,1,2,3,4,5,6,7,8'},
+                         requests[1]['parameters'])
+        self.assertEqual({'keys': 'AAPL', 'fields': '0,1'},
+                         requests[2]['parameters'])
+
+        # Handlers survive reconnection
+        await self.client.handle_message()
+        handler.assert_called_once()
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_reconnect_rekeys_account_activity(self, ws_connect):
+        socket = await self.login_and_get_socket(ws_connect)
+        socket.recv.side_effect = [json.dumps(
+            self.success_response(1, 'ACCT_ACTIVITY', 'SUBS'))]
+        await self.client.account_activity_sub()
+
+        new_socket = self.new_socket(ws_connect, [
+            json.dumps(self.success_response(2, 'ADMIN', 'LOGIN')),
+            json.dumps(self.success_response(3, 'ACCT_ACTIVITY', 'SUBS')),
+        ])
+        self.client._stream_correl_id = 'stale-id'
+        await self.client.reconnect()
+
+        requests = self.sent_requests(new_socket)
+        self.assertEqual(CLIENT_CORRELATION_ID,
+                         requests[1]['parameters']['keys'])
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_reconnect_reuses_connect_args(self, ws_connect):
+        self.http_client.get_user_preferences.return_value = MockResponse(
+            account_preferences(), 200)
+        self.new_socket(ws_connect, [json.dumps(
+            self.success_response(0, 'ADMIN', 'LOGIN'))])
+        await self.client.login(websocket_connect_args={'open_timeout': 5})
+
+        self.new_socket(ws_connect, [json.dumps(
+            self.success_response(1, 'ADMIN', 'LOGIN'))])
+        await self.client.reconnect()
+
+        self.assertEqual(ANY, ws_connect.call_args_list[1][0][0])
+        self.assertEqual({'open_timeout': 5}, ws_connect.call_args_list[1][1])
+
+    @no_duplicates
+    @patch('schwab.streaming.asyncio.sleep', new_callable=AsyncMock)
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_auto_reconnect(self, ws_connect, sleep):
+        self.client = StreamClient(self.http_client, auto_reconnect=True)
+        socket = await self.login_and_get_socket(ws_connect)
+        socket.recv.side_effect = [
+            json.dumps(self.success_response(1, 'CHART_EQUITY', 'SUBS')),
+            websockets.exceptions.ConnectionClosedError(None, None),
+        ]
+        await self.client.chart_equity_subs(['GOOG'])
+        handler = Mock()
+        self.client.add_chart_equity_handler(handler)
+
+        stream_item = self.streaming_entry('CHART_EQUITY', 'SUBS')
+        new_socket = self.new_socket(ws_connect, [
+            json.dumps(self.success_response(2, 'ADMIN', 'LOGIN')),
+            json.dumps(self.success_response(3, 'CHART_EQUITY', 'SUBS')),
+            json.dumps(stream_item),
+        ])
+
+        with self.assertLogs('schwab.streaming', level='WARNING'):
+            await self.client.handle_message()
+        await self.client.handle_message()
+
+        handler.assert_called_once_with(stream_item['data'][0])
+        self.assertEqual(['LOGIN', 'SUBS'],
+                         [r['command'] for r in self.sent_requests(new_socket)])
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_connection_loss_raises_without_auto_reconnect(
+            self, ws_connect):
+        socket = await self.login_and_get_socket(ws_connect)
+        socket.recv.side_effect = [
+            websockets.exceptions.ConnectionClosedError(None, None)]
+
+        with self.assertRaises(websockets.exceptions.ConnectionClosed):
+            await self.client.handle_message()
+
+    @no_duplicates
+    @patch('schwab.streaming.asyncio.sleep', new_callable=AsyncMock)
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_auto_reconnect_backs_off_and_gives_up(
+            self, ws_connect, sleep):
+        self.client = StreamClient(
+                self.http_client, auto_reconnect=True,
+                max_reconnect_attempts=3)
+        socket = await self.login_and_get_socket(ws_connect)
+        socket.recv.side_effect = [
+            websockets.exceptions.ConnectionClosedError(None, None)]
+        ws_connect.side_effect = OSError('network down')
+
+        with self.assertLogs('schwab.streaming', level='WARNING'):
+            with self.assertRaises(OSError):
+                await self.client.handle_message()
+
+        self.assertEqual([call(1), call(2), call(4)], sleep.await_args_list)
+
+    @no_duplicates
+    @patch('schwab.streaming.asyncio.sleep', new_callable=AsyncMock)
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_auto_reconnect_retries_until_success(
+            self, ws_connect, sleep):
+        self.client = StreamClient(self.http_client, auto_reconnect=True)
+        socket = await self.login_and_get_socket(ws_connect)
+        socket.recv.side_effect = [
+            websockets.exceptions.ConnectionClosedError(None, None)]
+
+        new_socket = AsyncMock()
+        new_socket.recv.side_effect = [
+            json.dumps(self.success_response(1, 'ADMIN', 'LOGIN'))]
+        ws_connect.side_effect = [OSError('down'), OSError('down'), new_socket]
+
+        with self.assertLogs('schwab.streaming', level='WARNING'):
+            await self.client.handle_message()
+
+        self.assertEqual(3, sleep.await_count)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_close_forgets_subscriptions(self, ws_connect):
+        socket = await self.login_and_get_socket(ws_connect)
+        socket.recv.side_effect = [json.dumps(
+            self.success_response(1, 'CHART_EQUITY', 'SUBS'))]
+        await self.client.chart_equity_subs(['GOOG'])
+
+        await self.client.close()
+
+        self.assertEqual({}, self.client._subscriptions)
 
     ###########################################################################
     # Response timeouts
