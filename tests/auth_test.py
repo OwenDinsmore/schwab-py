@@ -12,6 +12,9 @@ import json
 import os
 import requests
 import tempfile
+import webbrowser
+import time
+import threading
 import unittest
 
 
@@ -360,6 +363,93 @@ class WriteTokenFileTest(unittest.TestCase):
 
         with open(self.token_path, 'r') as f:
             self.assertEqual({'token': 'yes'}, json.load(f))
+
+
+class LoginFlowWithoutBrowserTest(unittest.TestCase):
+
+    def setUp(self):
+        self.tmp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp_dir.cleanup)
+        self.token_path = os.path.join(self.tmp_dir.name, 'token.json')
+        self.raw_token = {'token': 'yes'}
+
+    def send_callback_in_background(self):
+        # Called from the browser mocks, which run after the callback server
+        # process has been forked, so that the fork happens while this process
+        # is still single-threaded.
+        def send():
+            for _ in range(200):
+                try:
+                    requests.get('https://127.0.0.1:6969/callback?code=code',
+                                 verify=False)
+                    return
+                except requests.exceptions.ConnectionError:
+                    time.sleep(0.05)
+        thread = threading.Thread(target=send)
+        thread.start()
+        self.addCleanup(thread.join)
+
+    @no_duplicates
+    @patch('schwab.auth.Client')
+    @patch('schwab.auth.OAuth2Client', new_callable=MockOAuthClient)
+    @patch('schwab.auth.webbrowser.get', new_callable=MagicMock)
+    @patch('schwab.auth.input', MagicMock(return_value=''))
+    @patch('builtins.print')
+    def test_no_browser_available(
+            self, mock_print, mock_webbrowser_get, sync_session, client):
+        sync_session.return_value = sync_session
+        sync_session.create_authorization_url.return_value = \
+                'https://auth.url.com', None
+        sync_session.fetch_token.return_value = self.raw_token
+        def no_browser(requested_browser):
+            self.send_callback_in_background()
+            raise webbrowser.Error('no browser')
+        mock_webbrowser_get.side_effect = no_browser
+        client.return_value = 'returned client'
+
+        self.assertEqual('returned client', auth.client_from_login_flow(
+                API_KEY, APP_SECRET, 'https://127.0.0.1:6969/callback',
+                self.token_path))
+
+        printed = ' '.join(str(c) for c in mock_print.call_args_list)
+        self.assertIn('Could not open a web browser automatically', printed)
+
+    @no_duplicates
+    @patch('schwab.auth.Client')
+    @patch('schwab.auth.OAuth2Client', new_callable=MockOAuthClient)
+    @patch('schwab.auth.webbrowser.get', new_callable=MagicMock)
+    @patch('schwab.auth.input', MagicMock(return_value=''))
+    @patch('builtins.print')
+    def test_browser_fails_to_open(
+            self, mock_print, mock_webbrowser_get, sync_session, client):
+        sync_session.return_value = sync_session
+        sync_session.create_authorization_url.return_value = \
+                'https://auth.url.com', None
+        sync_session.fetch_token.return_value = self.raw_token
+        def fail_to_open(url):
+            self.send_callback_in_background()
+            return False
+        mock_webbrowser_get.return_value.open.side_effect = fail_to_open
+        client.return_value = 'returned client'
+
+        auth.client_from_login_flow(
+                API_KEY, APP_SECRET, 'https://127.0.0.1:6969/callback',
+                self.token_path)
+
+        printed = ' '.join(str(c) for c in mock_print.call_args_list)
+        self.assertIn('Could not open a web browser automatically', printed)
+
+    @no_duplicates
+    @patch('schwab.auth.webbrowser.get', new_callable=MagicMock)
+    @patch('schwab.auth.input', MagicMock(return_value=''))
+    @patch('builtins.print', MagicMock())
+    def test_requested_browser_not_found(self, mock_webbrowser_get):
+        mock_webbrowser_get.side_effect = webbrowser.Error('no such browser')
+
+        with self.assertRaises(webbrowser.Error):
+            auth.client_from_login_flow(
+                    API_KEY, APP_SECRET, 'https://127.0.0.1:6969/callback',
+                    self.token_path, requested_browser='nonexistent')
 
 
 class ClientFromTokenFileTest(unittest.TestCase):
@@ -832,6 +922,36 @@ class ClientFromReceivedUrl(unittest.TestCase):
         sync_session.create_authorization_url.assert_called_once_with(
                 custom_base_url + '/v1/oauth/authorize',
                 state=None)
+
+
+class CleanCredentialTest(unittest.TestCase):
+
+    @no_duplicates
+    def test_whitespace_stripped_with_warning(self):
+        with self.assertLogs('schwab.auth', level='WARNING') as logs:
+            self.assertEqual('key', auth._clean_credential('api_key', ' key\n'))
+        self.assertIn('api_key', logs.output[0])
+        # Never log the credential itself
+        self.assertNotIn('key\n', logs.output[0])
+
+    @no_duplicates
+    def test_clean_value_unchanged(self):
+        with self.assertNoLogs('schwab.auth', level='WARNING'):
+            self.assertEqual('key', auth._clean_credential('api_key', 'key'))
+
+    @no_duplicates
+    @patch('schwab.auth.Client')
+    @patch('schwab.auth.OAuth2Client', new_callable=MockOAuthClient)
+    def test_access_functions_strip_credentials(self, sync_session, client):
+        token = {'creation_timestamp': 1, 'token': {'token': 'yes'}}
+        with self.assertLogs('schwab.auth', level='WARNING'):
+            auth.client_from_access_functions(
+                    API_KEY + ' ', ' ' + APP_SECRET, lambda: token,
+                    lambda t: None)
+
+        self.assertEqual(API_KEY, sync_session.call_args[0][0])
+        self.assertEqual(APP_SECRET,
+                         sync_session.call_args[1]['client_secret'])
 
 
 class ResolveBaseUrlTest(unittest.TestCase):

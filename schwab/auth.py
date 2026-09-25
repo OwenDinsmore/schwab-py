@@ -27,6 +27,19 @@ TOKEN_ENDPOINT = DEFAULT_BASE_URL + '/v1/oauth/token'
 REVOKE_URL = DEFAULT_BASE_URL + '/v1/oauth/revoke'
 
 
+def _clean_credential(name, value):
+    '''
+    Strips surrounding whitespace, which is easy to pick up when copying keys
+    from the developer portal and which some Schwab endpoints reject with
+    unhelpful errors.
+    '''
+    if isinstance(value, str) and value != value.strip():
+        get_logger().warning(
+                'Removing leading or trailing whitespace from %s', name)
+        return value.strip()
+    return value
+
+
 def _resolve_base_url(base_url):
     return DEFAULT_BASE_URL if base_url is None else base_url.rstrip('/')
 
@@ -416,8 +429,28 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
             input('Press ENTER to open the browser. Note you can call ' +
                   'this method with interactive=False to skip this input.')
 
-        controller = webbrowser.get(requested_browser)
-        controller.open(auth_context.authorization_url)
+        try:
+            controller = webbrowser.get(requested_browser)
+            opened = controller.open(auth_context.authorization_url)
+        except webbrowser.Error:
+            # A browser that was explicitly asked for but can't be found is
+            # a configuration error, so surface it.
+            if requested_browser is not None:
+                raise
+            opened = False
+
+        if not opened:
+            print()
+            print('Could not open a web browser automatically. To log in, open')
+            print('this URL in a browser on this machine:')
+            print()
+            print('>>', auth_context.authorization_url)
+            print()
+            print('If this machine has no browser, for instance because it is a')
+            print('server or a container, stop this program and use')
+            print('client_from_manual_flow instead, or create the token on another')
+            print('machine and copy the token file over.')
+            print()
 
         # Wait for a response
         now = __TIME_TIME()
@@ -688,6 +721,9 @@ def _client_from_access_functions(api_key, app_secret, token_read_func,
                                   token_write_func, asyncio=False,
                                   enforce_enums=True, base_url=None,
                                   token_sync=None):
+    api_key = _clean_credential('api_key', api_key)
+    app_secret = _clean_credential('app_secret', app_secret)
+
     token = token_read_func()
 
     # Extract metadata and unpack the token, if necessary
@@ -739,6 +775,7 @@ AuthContext = collections.namedtuple(
         'AuthContext', ['callback_url', 'authorization_url', 'state'])
 
 def get_auth_context(api_key, callback_url, state=None, base_url=None):
+    api_key = _clean_credential('api_key', api_key)
     base_url = _resolve_base_url(base_url)
     oauth = OAuth2Client(api_key, redirect_uri=callback_url)
     authorization_url, state = oauth.create_authorization_url(
@@ -785,6 +822,8 @@ def client_from_received_url(
 def _client_from_received_url(
         api_key, app_secret, auth_context, received_url, token_write_func,
         asyncio=False, enforce_enums=True, base_url=None, token_sync=None):
+    api_key = _clean_credential('api_key', api_key)
+    app_secret = _clean_credential('app_secret', app_secret)
     base_url = _resolve_base_url(base_url)
     # XXX: The AuthContext must be serializable, which means the original
     #      OAuth2Client created in get_auth_context cannot be passed around.
