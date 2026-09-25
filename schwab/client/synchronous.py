@@ -1,10 +1,9 @@
 from .base import BaseClient
-from ..utils import LazyLog
 from ..debug import register_redactions_from_response
 from authlib.integrations.base_client import OAuthError
 
 from .._http import httpx
-import json
+import time
 
 
 class Client(BaseClient):
@@ -62,81 +61,57 @@ class Client(BaseClient):
         return self._replace_account_number(
                 path, self.get_account_hash(account_number))
 
-    def _get_request(self, path, params):
+    def _request(self, method, path, *, params=None, json_data=None):
         path = self._resolve_account_path(path)
         dest = self.base_url + path
 
         req_num = self._req_num()
-        self.logger.debug('Req %s: GET to %s, params=%s',
-                req_num, dest, LazyLog(lambda: json.dumps(params, indent=4)))
-
+        self._log_request(req_num, method, dest, params, json_data)
         self._check_refresh_token_expiry()
-        try:
-            resp = self.session.get(dest, params=params)
-        except OAuthError as e:
-            translated = self._translate_oauth_error(e)
-            if translated is e:
-                raise
-            raise translated from e
-        self._log_response(resp, req_num, 'GET')
+
+        send = getattr(self.session, method.lower())
+        kwargs = self._send_kwargs(method, params, json_data)
+
+        attempt = 0
+        while True:
+            delay = self._reserve_request_slot()
+            while delay > 0:
+                self.logger.debug(
+                        'Req %s: waiting %.1f seconds for the rate limit',
+                        req_num, delay)
+                time.sleep(delay)
+                delay = self._reserve_request_slot()
+
+            try:
+                resp = send(dest, **kwargs)
+            except OAuthError as e:
+                translated = self._translate_oauth_error(e)
+                if translated is e:
+                    raise
+                raise translated from e
+            self._log_response(resp, req_num, method)
+
+            if not self._should_retry(resp, attempt):
+                break
+            delay = self._retry_delay(resp, attempt)
+            attempt += 1
+            self.logger.warning(
+                    'Req %s: rate limited by Schwab, retry %s of %s in %.1f '
+                    'seconds', req_num, attempt, self._max_rate_limit_retries,
+                    delay)
+            time.sleep(delay)
+
         register_redactions_from_response(resp)
         return resp
+
+    def _get_request(self, path, params):
+        return self._request('GET', path, params=params)
 
     def _post_request(self, path, data):
-        path = self._resolve_account_path(path)
-        dest = self.base_url + path
-
-        req_num = self._req_num()
-        self.logger.debug('Req %s: POST to %s, json=%s',
-            req_num, dest, LazyLog(lambda: json.dumps(data, indent=4)))
-
-        self._check_refresh_token_expiry()
-        try:
-            resp = self.session.post(dest, json=data)
-        except OAuthError as e:
-            translated = self._translate_oauth_error(e)
-            if translated is e:
-                raise
-            raise translated from e
-        self._log_response(resp, req_num, 'POST')
-        register_redactions_from_response(resp)
-        return resp
+        return self._request('POST', path, json_data=data)
 
     def _put_request(self, path, data):
-        path = self._resolve_account_path(path)
-        dest = self.base_url + path
-
-        req_num = self._req_num()
-        self.logger.debug('Req %s: PUT to %s, json=%s',
-            req_num, dest, LazyLog(lambda: json.dumps(data, indent=4)))
-
-        self._check_refresh_token_expiry()
-        try:
-            resp = self.session.put(dest, json=data)
-        except OAuthError as e:
-            translated = self._translate_oauth_error(e)
-            if translated is e:
-                raise
-            raise translated from e
-        self._log_response(resp, req_num, 'PUT')
-        register_redactions_from_response(resp)
-        return resp
+        return self._request('PUT', path, json_data=data)
 
     def _delete_request(self, path):
-        path = self._resolve_account_path(path)
-        dest = self.base_url + path
-
-        req_num = self._req_num()
-        self.logger.debug('Req %s: DELETE to %s', req_num, dest)
-
-        self._check_refresh_token_expiry()
-        try:
-            resp = self.session.delete(dest)
-        except OAuthError as e:
-            translated = self._translate_oauth_error(e)
-            if translated is e:
-                raise
-            raise translated from e
-        self._log_response(resp, req_num, 'DELETE')
-        register_redactions_from_response(resp)
-        return resp
+        return self._request('DELETE', path)

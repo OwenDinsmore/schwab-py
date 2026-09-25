@@ -74,6 +74,31 @@ client they return instead.
       import asyncio
       asyncio.run(main())
 
++++++++++++++
+Rate Limiting
++++++++++++++
+
+Schwab allows about 120 API requests per minute, and your app's limit for
+placing, replacing and cancelling orders may be set lower in the developer
+portal. Requests over the limit are rejected with HTTP 429 (Too Many Requests).
+Clients don't limit themselves by default, but you can have them pace their
+requests and retry rejected ones:
+
+.. code-block:: python
+
+  # Never send more than 100 requests in any sixty second window
+  client.set_rate_limit(100)
+
+  # Retry requests rejected with HTTP 429 up to three times
+  client.set_rate_limit_retries(3)
+
+A request rejected with 429 was not processed, so it is safe to retry even
+when placing an order. For market data, prefer the :ref:`streaming client
+<stream>` to polling in a loop.
+
+.. automethod:: schwab.client.Client.set_rate_limit
+.. automethod:: schwab.client.Client.set_rate_limit_retries
+
 +++++++++++++++++++
 Calling Conventions
 +++++++++++++++++++

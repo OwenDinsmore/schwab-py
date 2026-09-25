@@ -63,6 +63,8 @@ Fixes
 New features
 ------------
 
+* Optional client-side rate limiting with ``set_rate_limit()``, and automatic
+  retries of requests rejected with HTTP 429 with ``set_rate_limit_retries()``.
 * Clients warn as the seven-day refresh token expiry approaches, and can call
   a function you provide so you can log in again in time. Requests made with an
   expired refresh token raise ``RefreshTokenExpiredError``, a subclass of the

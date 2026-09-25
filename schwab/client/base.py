@@ -4,15 +4,18 @@ Schwab HTTP API.'''
 
 from enum import Enum
 
+import collections
 import datetime
+import json
 import logging
+import threading
 import time
 import re
 import schwab
 
 from schwab.orders.generic import OrderBuilder
 
-from ..utils import AccountHashLookupError, EnumEnforcer
+from ..utils import AccountHashLookupError, EnumEnforcer, LazyLog
 from ..utils import RefreshTokenExpiredError
 
 
@@ -71,10 +74,93 @@ class BaseClient(EnumEnforcer):
         # Maps account numbers to account hashes. See get_account_hash().
         self._account_hashes = {}
 
+        # See set_rate_limit() and set_rate_limit_retries()
+        self._rate_limit = None
+        self._request_times = collections.deque()
+        self._rate_limit_lock = threading.Lock()
+        self._max_rate_limit_retries = 0
+
         # See set_refresh_token_expiry_warning()
         self._expiry_warn_before = 24 * 60 * 60
         self._expiry_callback = None
         self._last_expiry_warning = None
+
+    ##########################################################################
+    # Rate limiting
+
+    def set_rate_limit(self, requests_per_minute):
+        '''Limits this client to ``requests_per_minute`` requests in any
+        sixty second window, waiting as needed before sending requests. Set to
+        ``None``, the default, to disable. Schwab allows about 120 requests a
+        minute; an app's limit for placing, replacing and cancelling orders may
+        be set lower in the developer portal.
+
+        The limit applies to this client object only. Separate clients, for
+        instance in separate processes, each have their own limit.
+        '''
+        if requests_per_minute is not None:
+            if (not isinstance(requests_per_minute, int)
+                    or requests_per_minute < 1):
+                raise ValueError('requests_per_minute must be a positive int '
+                                 'or None')
+        with self._rate_limit_lock:
+            self._rate_limit = requests_per_minute
+            self._request_times.clear()
+
+    def set_rate_limit_retries(self, max_retries):
+        '''When Schwab rejects a request with HTTP 429 (Too Many Requests),
+        retry it up to ``max_retries`` times, waiting for the time given in the
+        response's ``Retry-After`` header or, failing that, backing off
+        exponentially. A rejected request was not processed, so retrying is
+        safe even for placing orders. Defaults to ``0``, which returns the 429
+        response to the caller.
+        '''
+        if not isinstance(max_retries, int) or max_retries < 0:
+            raise ValueError('max_retries must be a non-negative int')
+        self._max_rate_limit_retries = max_retries
+
+    def _reserve_request_slot(self):
+        '''Records a request and returns ``0`` if the rate limit allows one
+        now. Otherwise returns the number of seconds to wait before trying
+        again.'''
+        with self._rate_limit_lock:
+            if self._rate_limit is None:
+                return 0
+            now = time.monotonic()
+            while self._request_times and now - self._request_times[0] >= 60:
+                self._request_times.popleft()
+            if len(self._request_times) < self._rate_limit:
+                self._request_times.append(now)
+                return 0
+            return 60 - (now - self._request_times[0])
+
+    def _should_retry(self, resp, attempt):
+        return (resp.status_code == 429
+                and attempt < self._max_rate_limit_retries)
+
+    def _retry_delay(self, resp, attempt):
+        try:
+            delay = float(resp.headers.get('Retry-After'))
+        except (TypeError, ValueError):
+            delay = 2 ** attempt
+        return max(0, min(delay, 60))
+
+    def _log_request(self, req_num, method, dest, params, json_data):
+        if method == 'GET':
+            self.logger.debug('Req %s: GET to %s, params=%s', req_num, dest,
+                    LazyLog(lambda: json.dumps(params, indent=4)))
+        elif json_data is not None:
+            self.logger.debug('Req %s: %s to %s, json=%s', req_num, method,
+                    dest, LazyLog(lambda: json.dumps(json_data, indent=4)))
+        else:
+            self.logger.debug('Req %s: %s to %s', req_num, method, dest)
+
+    def _send_kwargs(self, method, params, json_data):
+        if method == 'GET':
+            return {'params': params}
+        if method in ('POST', 'PUT'):
+            return {'json': json_data}
+        return {}
 
     ##########################################################################
     # Refresh token expiry

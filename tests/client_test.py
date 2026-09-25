@@ -89,6 +89,140 @@ class _TestClient:
         return 'https://api.schwabapi.com' + path
 
 
+    # Rate limiting
+
+    def fake_clock(self):
+        '''Patches the monotonic clock and sleep so that sleeping advances the
+        clock instantly. Returns the list of sleep durations.'''
+        clock = [1000.0]
+        sleeps = []
+
+        def sleep(seconds):
+            sleeps.append(seconds)
+            clock[0] += seconds
+
+        async def async_sleep(seconds):
+            sleep(seconds)
+
+        patchers = [patch('schwab.client.base.time.monotonic',
+                          side_effect=lambda: clock[0])]
+        if self.magicmock_class is AsyncMagicMock:
+            patchers.append(patch('schwab.client.asynchronous.asyncio.sleep',
+                                  side_effect=async_sleep))
+        else:
+            patchers.append(patch('schwab.client.synchronous.time.sleep',
+                                  side_effect=sleep))
+        for patcher in patchers:
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        return clock, sleeps
+
+    def test_set_rate_limit_validation(self):
+        for bad in (0, -1, 1.5, '120'):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                self.client.set_rate_limit(bad)
+
+    def test_set_rate_limit_retries_validation(self):
+        for bad in (-1, 1.5, None):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                self.client.set_rate_limit_retries(bad)
+
+    def test_no_rate_limit_by_default(self):
+        clock, sleeps = self.fake_clock()
+        for _ in range(200):
+            self.client.get_account_numbers()
+        self.assertEqual([], sleeps)
+
+    def test_rate_limit_waits_for_window(self):
+        clock, sleeps = self.fake_clock()
+        self.client.set_rate_limit(2)
+
+        self.client.get_account_numbers()
+        clock[0] += 10
+        self.client.get_account_numbers()
+        self.assertEqual([], sleeps)
+
+        # The third request, 10 seconds after the first, must wait until the
+        # first leaves the window
+        self.client.get_account_numbers()
+        self.assertEqual([50], sleeps)
+        self.assertEqual(3, self.mock_session.get.call_count)
+
+    def test_rate_limit_window_slides(self):
+        clock, sleeps = self.fake_clock()
+        self.client.set_rate_limit(2)
+
+        self.client.get_account_numbers()
+        clock[0] += 61
+        self.client.get_account_numbers()
+        self.client.get_account_numbers()
+
+        self.assertEqual([], sleeps)
+
+    def test_rate_limit_disabled(self):
+        clock, sleeps = self.fake_clock()
+        self.client.set_rate_limit(1)
+        self.client.set_rate_limit(None)
+        for _ in range(5):
+            self.client.get_account_numbers()
+        self.assertEqual([], sleeps)
+
+    def test_429_returned_without_retries(self):
+        self.fake_clock()
+        self.mock_session.get.side_effect = [MockResponse({}, 429)]
+        self.assertEqual(429, self.client.get_account_numbers().status_code)
+
+    def test_429_retried_using_retry_after(self):
+        clock, sleeps = self.fake_clock()
+        self.client.set_rate_limit_retries(3)
+        self.mock_session.get.side_effect = [
+            MockResponse({}, 429, headers={'Retry-After': '2'}),
+            MockResponse({}, 200),
+        ]
+
+        with self.assertLogs('schwab.client.base', level='WARNING'):
+            resp = self.client.get_account_numbers()
+
+        self.assertEqual(200, resp.status_code)
+        self.assertEqual([2.0], sleeps)
+
+    def test_429_retried_with_backoff(self):
+        clock, sleeps = self.fake_clock()
+        self.client.set_rate_limit_retries(3)
+        self.mock_session.post.side_effect = [
+            MockResponse({}, 429),
+            MockResponse({}, 429),
+            MockResponse({}, 201),
+        ]
+
+        resp = self.client.place_order(ACCOUNT_HASH, {'order': 'spec'})
+
+        self.assertEqual(201, resp.status_code)
+        self.assertEqual([1, 2], sleeps)
+        self.assertEqual(3, self.mock_session.post.call_count)
+
+    def test_429_retries_exhausted(self):
+        clock, sleeps = self.fake_clock()
+        self.client.set_rate_limit_retries(2)
+        self.mock_session.get.side_effect = [MockResponse({}, 429)] * 3
+
+        resp = self.client.get_account_numbers()
+
+        self.assertEqual(429, resp.status_code)
+        self.assertEqual(3, self.mock_session.get.call_count)
+
+    def test_retry_after_capped(self):
+        clock, sleeps = self.fake_clock()
+        self.client.set_rate_limit_retries(1)
+        self.mock_session.get.side_effect = [
+            MockResponse({}, 429, headers={'Retry-After': '3600'}),
+            MockResponse({}, 200),
+        ]
+
+        self.client.get_account_numbers()
+        self.assertEqual([60], sleeps)
+
+
     # Refresh token expiry
 
     DAY = 24 * 60 * 60
