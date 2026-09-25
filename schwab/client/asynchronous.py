@@ -87,6 +87,7 @@ class AsyncClient(BaseClient):
                     raise
                 raise translated from e
             self._log_response(resp, req_num, method)
+            self._warn_on_known_errors(resp, req_num)
 
             if not self._should_retry(resp, attempt):
                 break

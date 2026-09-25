@@ -223,6 +223,25 @@ class _TestClient:
         self.assertEqual([60], sleeps)
 
 
+    # Known errors
+
+    def test_too_big_body_warning(self):
+        self.mock_session.get.return_value = MockResponse({'fault': {
+            'faultstring': 'Body buffer overflow',
+            'detail': {'errorcode': 'protocol.http.TooBigBody'}}}, 500)
+
+        with self.assertLogs('schwab.client.base', level='WARNING') as logs:
+            resp = self.client.get_option_chain('$SPX')
+
+        self.assertEqual(500, resp.status_code)
+        self.assertIn('strike_count', logs.output[0])
+
+    def test_other_errors_not_warned(self):
+        self.mock_session.get.return_value = MockResponse({'error': 'x'}, 500)
+        with self.assertNoLogs('schwab.client.base', level='WARNING'):
+            self.client.get_option_chain('$SPX')
+
+
     # Refresh token expiry
 
     DAY = 24 * 60 * 60

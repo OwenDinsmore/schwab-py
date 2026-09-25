@@ -145,6 +145,19 @@ class BaseClient(EnumEnforcer):
             delay = 2 ** attempt
         return max(0, min(delay, 60))
 
+    def _warn_on_known_errors(self, resp, req_num):
+        # Schwab's gateway rejects responses over its size limit with an
+        # error that doesn't say how to fix it.
+        status, content = resp.status_code, resp.content
+        if not isinstance(status, int) or not isinstance(content, bytes):
+            return
+        if status >= 400 and b'TooBigBody' in content:
+            self.logger.warning(
+                    'Req %s: Schwab rejected the request because the response '
+                    'would be too large. Narrow the request, for example by '
+                    'passing strike_count, strike_range, or from_date and '
+                    'to_date to get_option_chain.', req_num)
+
     def _log_request(self, req_num, method, dest, params, json_data):
         if method == 'GET':
             self.logger.debug('Req %s: GET to %s, params=%s', req_num, dest,

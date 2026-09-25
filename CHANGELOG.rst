@@ -63,6 +63,9 @@ Fixes
 New features
 ------------
 
+* A warning explains how to narrow requests that Schwab rejects with
+  ``Body buffer overflow`` because the response would be too large, as happens
+  with full option chains for symbols like ``$SPX``.
 * Optional client-side rate limiting with ``set_rate_limit()``, and automatic
   retries of requests rejected with HTTP 429 with ``set_rate_limit_retries()``.
 * Clients warn as the seven-day refresh token expiry approaches, and can call
