@@ -1173,6 +1173,12 @@ class EasyClientTest(unittest.TestCase):
         c = auth.easy_client(API_KEY, APP_SECRET, CALLBACK_URL, self.token_path)
         self.assertIs(c, mock_client)
 
+        # asyncio is passed through
+        auth.easy_client(API_KEY, APP_SECRET, CALLBACK_URL, self.token_path,
+                         asyncio=True)
+        self.assertTrue(
+                client_from_manual_flow.call_args.kwargs['asyncio'])
+
 
     @no_duplicates
     @patch('schwab.auth.client_from_token_file')
@@ -1254,14 +1260,14 @@ class EasyClientTest(unittest.TestCase):
 
         c = auth.easy_client(API_KEY, APP_SECRET, CALLBACK_URL, self.token_path,
                              asyncio='asyncio', enforce_enums='enforce_enums',
-                             base_url='base_url')
+                             base_url='base_url', share_token='share_token')
 
         self.assertIs(c, mock_client)
 
         client_from_token_file.assert_called_once_with(
                 self.token_path, API_KEY, APP_SECRET,
                 asyncio='asyncio', enforce_enums='enforce_enums',
-                base_url='base_url')
+                base_url='base_url', share_token='share_token')
 
 
     @no_duplicates

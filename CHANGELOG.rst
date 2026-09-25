@@ -32,6 +32,8 @@ These fix real bugs but may be visible to existing code:
 * ``client_from_received_url``, and so the manual and login flows, raise
   ``InvalidRedirectURLError`` for a redirect URL without an authorization code,
   instead of silently fetching a token that can't be refreshed (#224).
+* Clients created from a token file create a lock file next to it
+  (``token.json.lock``) the first time they refresh the token (#94).
 * Token files record whether they have been revoked. Older versions of
   schwab-py ignore the extra field.
 
@@ -49,6 +51,7 @@ Fixes
   httpx (#214).
 * schwab-py uses the same HTTP library as authlib, which prefers ``httpx2``
   when it is installed (#268).
+* ``easy_client`` honors ``asyncio=True`` when run in a notebook.
 * Fixed several documentation errors, including the missing
   ``client_from_access_functions`` example (#183, #216), the async client
   example (#188, #199) and the nonexistent ``statuses`` parameter (#195).
@@ -56,6 +59,13 @@ Fixes
 New features
 ------------
 
+* Every method that takes an account hash also accepts the plain account
+  number. Hashes are looked up and cached automatically; see
+  ``Client.get_account_hash()`` (#6).
+* Several scripts on one machine can share a token file. Clients adopt tokens
+  refreshed or created by other processes, and refreshes are coordinated with a
+  lock file so each happens once. On by default for token-file clients; pass
+  ``share_token=False`` to disable (#94).
 * Equity order templates for stop, stop limit, trailing stop,
   market-on-close and limit-on-close orders (#227).
 * Straddle option templates (PR #179).

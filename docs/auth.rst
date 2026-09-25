@@ -131,6 +131,35 @@ seven day token age restriction is implemented by Schwab, and so the token may
 become expired sooner *or* later than seven days.
 
 
+.. _sharing_tokens:
+
+---------------------------------------
+Sharing a Token Between Several Scripts
+---------------------------------------
+
+Schwab allows only one active token per app: creating a new token invalidates
+the previous one. If you run several scripts at once, such as a trading bot and
+a separate monitoring script, they must all use the same token file.
+
+``schwab-py`` coordinates this for you. Clients created from a token file with
+:func:`~schwab.auth.easy_client`, :func:`~schwab.auth.client_from_token_file`,
+or the login flows keep their token in sync with the file:
+
+* Before each request, a client checks whether the token file has changed. If
+  another script has refreshed the token or logged in again, the client
+  switches to the new token.
+* When the token needs refreshing, the client takes an exclusive lock on a lock
+  file next to the token file (the token path plus ``.lock``). If another script
+  refreshed the token while this one waited for the lock, the refreshed token is
+  used instead of refreshing again. So each refresh happens exactly once, no
+  matter how many scripts are running.
+
+This works across processes on one machine, for both the regular and async
+clients. It does not coordinate between machines; for that, store the token
+somewhere shared and use :func:`~schwab.auth.client_from_access_functions`. To
+turn sharing off, pass ``share_token=False``.
+
+
 .. _token_revocation:
 
 ----------------
