@@ -5,6 +5,8 @@ checks against. authlib prefers ``httpx2`` when it is installed and falls back
 to ``httpx`` otherwise.
 '''
 
+from __future__ import annotations
+
 try:
     import httpx2 as httpx
 except ImportError:  # pragma: no cover

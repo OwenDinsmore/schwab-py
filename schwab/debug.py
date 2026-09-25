@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import atexit
 from schwab._http import httpx
 import json
@@ -5,8 +7,11 @@ import logging
 import sys
 import schwab
 
+from collections.abc import Callable, Container, Iterable
+from typing import Any, TextIO
 
-def get_logger():
+
+def get_logger() -> logging.Logger:
     return logging.getLogger(__name__)
 
 
@@ -22,13 +27,13 @@ class LogRedactor:
     placeholders.
     '''
 
-    def __init__(self):
+    def __init__(self) -> None:
         from collections import defaultdict
 
-        self.redacted_strings = {}
-        self.label_counts = defaultdict(int)
+        self.redacted_strings: dict[str, Any] = {}
+        self.label_counts: defaultdict[str, int] = defaultdict(int)
 
-    def register(self, string, label):
+    def register(self, string: Any, label: str) -> None:
         '''
         Registers a string that should not be emitted and the label with with
         which it should be replaced.
@@ -38,7 +43,7 @@ class LogRedactor:
             self.label_counts[label] += 1
             self.redacted_strings[string] = (label, self.label_counts[label])
 
-    def redact(self, msg):
+    def redact(self, msg: str) -> str:
         '''
         Scans the string for secret strings and returns a sanitized version with
         the secrets replaced with placeholders.
@@ -51,7 +56,7 @@ class LogRedactor:
         return msg
 
 
-def register_redactions_from_response(resp):
+def register_redactions_from_response(resp: Any) -> None:
     '''
     Convenience method that calls ``register_redactions`` if resp represents a
     successful response and bug report logging is enabled. Note this method
@@ -66,11 +71,11 @@ def register_redactions_from_response(resp):
             pass
 
 
-def register_redactions(obj, key_path=None,
-                        bad_patterns=[
+def register_redactions(obj: Any, key_path: list[str] | None = None,
+                        bad_patterns: Iterable[str] = [
                             'auth', 'acl', 'displayname', 'id', 'key', 'token',
                             'accountnumber', 'hashvalue', 'accounthash'],
-                        whitelisted=set([
+                        whitelisted: Container[str] = set([
                             'requestid',
                             'token_type',
                             'legid',
@@ -79,7 +84,7 @@ def register_redactions(obj, key_path=None,
                             'lastid',
                             'bidsizeinlong',
                             'bidsizeindouble',
-                            'bidpriceindouble'])):
+                            'bidpriceindouble'])) -> None:
     '''
     Recursively iterates through the leaf elements of ``obj`` and registers
     elements with keys matching a blacklist with the global ``Redactor``.
@@ -106,7 +111,7 @@ def register_redactions(obj, key_path=None,
                 schwab.LOG_REDACTOR.register(obj, '-'.join(key_path))
 
 
-def enable_bug_report_logging():
+def enable_bug_report_logging() -> None:
     '''
     Turns on bug report logging. Will collect all logged output, redact out
     anything that should be kept secret, and emit the result at program exit.
@@ -120,7 +125,10 @@ def enable_bug_report_logging():
     _enable_bug_report_logging()
 
 
-def _enable_bug_report_logging(output=None, loggers=None):
+def _enable_bug_report_logging(
+        output: TextIO | None = None,
+        loggers: Iterable[logging.Logger] | None = None
+) -> Callable[[], None]:
     '''
     Module-internal version of :func:`enable_bug_report_logging`, intended for
     use in tests.
@@ -139,11 +147,11 @@ def _enable_bug_report_logging(output=None, loggers=None):
             get_logger())
 
     class RecordingHandler(logging.Handler):
-        def __init__(self, *args, **kwargs):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
             super().__init__(*args, **kwargs)
-            self.messages = []
+            self.messages: list[str] = []
 
-        def emit(self, record):
+        def emit(self, record: logging.LogRecord) -> None:
             self.messages.append(self.format(record))
 
     handler = RecordingHandler()
@@ -154,7 +162,7 @@ def _enable_bug_report_logging(output=None, loggers=None):
         logger.setLevel(logging.DEBUG)
         logger.addHandler(handler)
 
-    def write_logs():
+    def write_logs() -> None:
         print(file=output)
         print(' ### BEGIN REDACTED LOGS ###', file=output)
         print(file=output)

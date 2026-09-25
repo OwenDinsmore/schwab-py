@@ -2,7 +2,11 @@
 completely unopinionated, and provides an easy-to-use wrapper around the
 Schwab HTTP API.'''
 
+from __future__ import annotations
+
+from collections.abc import Callable, Iterable
 from enum import Enum
+from typing import Any
 
 import collections
 import datetime
@@ -48,8 +52,9 @@ class BaseClient(EnumEnforcer):
     _ACCOUNT_NUMBER_PATH = re.compile(
             r'^(/trader/v1/accounts/)(\d{1,12})(?=/|$)')
 
-    def __init__(self, api_key, session, *, enforce_enums=True,
-                 token_metadata=None, base_url=None):
+    def __init__(self, api_key: str, session: Any, *,
+                 enforce_enums: bool = True, token_metadata: Any = None,
+                 base_url: str | None = None) -> None:
         '''Create a new client with the given API key and session. Set
         `enforce_enums=False` to disable strict input type checking.
 
@@ -72,23 +77,39 @@ class BaseClient(EnumEnforcer):
         self.token_metadata = token_metadata
 
         # Maps account numbers to account hashes. See get_account_hash().
-        self._account_hashes = {}
+        self._account_hashes: dict[str, str] = {}
 
         # See set_rate_limit() and set_rate_limit_retries()
-        self._rate_limit = None
-        self._request_times = collections.deque()
+        self._rate_limit: int | None = None
+        self._request_times: collections.deque[float] = collections.deque()
         self._rate_limit_lock = threading.Lock()
         self._max_rate_limit_retries = 0
 
         # See set_refresh_token_expiry_warning()
-        self._expiry_warn_before = 24 * 60 * 60
-        self._expiry_callback = None
-        self._last_expiry_warning = None
+        self._expiry_warn_before: float | None = 24 * 60 * 60
+        self._expiry_callback: Callable[[float], Any] | None = None
+        self._last_expiry_warning: float | None = None
+
+    ##########################################################################
+    # Requests, implemented by Client and AsyncClient. These return responses
+    # in Client and awaitables of responses in AsyncClient.
+
+    def _get_request(self, path: str, params: dict[str, Any]) -> Any:
+        raise NotImplementedError
+
+    def _post_request(self, path: str, data: Any) -> Any:
+        raise NotImplementedError
+
+    def _put_request(self, path: str, data: Any) -> Any:
+        raise NotImplementedError
+
+    def _delete_request(self, path: str) -> Any:
+        raise NotImplementedError
 
     ##########################################################################
     # Rate limiting
 
-    def set_rate_limit(self, requests_per_minute):
+    def set_rate_limit(self, requests_per_minute: int | None) -> None:
         '''Limits this client to ``requests_per_minute`` requests in any
         sixty second window, waiting as needed before sending requests. Set to
         ``None``, the default, to disable. Schwab allows about 120 requests a
@@ -107,7 +128,7 @@ class BaseClient(EnumEnforcer):
             self._rate_limit = requests_per_minute
             self._request_times.clear()
 
-    def set_rate_limit_retries(self, max_retries):
+    def set_rate_limit_retries(self, max_retries: int) -> None:
         '''When Schwab rejects a request with HTTP 429 (Too Many Requests),
         retry it up to ``max_retries`` times, waiting for the time given in the
         response's ``Retry-After`` header or, failing that, backing off
@@ -119,7 +140,7 @@ class BaseClient(EnumEnforcer):
             raise ValueError('max_retries must be a non-negative int')
         self._max_rate_limit_retries = max_retries
 
-    def _reserve_request_slot(self):
+    def _reserve_request_slot(self) -> float:
         '''Records a request and returns ``0`` if the rate limit allows one
         now. Otherwise returns the number of seconds to wait before trying
         again.'''
@@ -134,18 +155,18 @@ class BaseClient(EnumEnforcer):
                 return 0
             return 60 - (now - self._request_times[0])
 
-    def _should_retry(self, resp, attempt):
+    def _should_retry(self, resp: Any, attempt: int) -> bool:
         return (resp.status_code == 429
                 and attempt < self._max_rate_limit_retries)
 
-    def _retry_delay(self, resp, attempt):
+    def _retry_delay(self, resp: Any, attempt: int) -> float:
         try:
             delay = float(resp.headers.get('Retry-After'))
         except (TypeError, ValueError):
             delay = 2 ** attempt
         return max(0, min(delay, 60))
 
-    def _warn_on_known_errors(self, resp, req_num):
+    def _warn_on_known_errors(self, resp: Any, req_num: int) -> None:
         # Schwab's gateway rejects responses over its size limit with an
         # error that doesn't say how to fix it.
         status, content = resp.status_code, resp.content
@@ -158,7 +179,8 @@ class BaseClient(EnumEnforcer):
                     'passing strike_count, strike_range, or from_date and '
                     'to_date to get_option_chain.', req_num)
 
-    def _log_request(self, req_num, method, dest, params, json_data):
+    def _log_request(self, req_num: int, method: str, dest: str,
+                     params: dict[str, Any] | None, json_data: Any) -> None:
         if method == 'GET':
             self.logger.debug('Req %s: GET to %s, params=%s', req_num, dest,
                     LazyLog(lambda: json.dumps(params, indent=4)))
@@ -168,7 +190,8 @@ class BaseClient(EnumEnforcer):
         else:
             self.logger.debug('Req %s: %s to %s', req_num, method, dest)
 
-    def _send_kwargs(self, method, params, json_data):
+    def _send_kwargs(self, method: str, params: dict[str, Any] | None,
+                     json_data: Any) -> dict[str, Any]:
         if method == 'GET':
             return {'params': params}
         if method in ('POST', 'PUT'):
@@ -178,7 +201,7 @@ class BaseClient(EnumEnforcer):
     ##########################################################################
     # Refresh token expiry
 
-    def refresh_token_expires_in(self):
+    def refresh_token_expires_in(self) -> float | None:
         '''Returns the number of seconds until this client's refresh token
         expires, which is negative once it has expired, or ``None`` if the
         client has no token metadata. Schwab refresh tokens expire seven days
@@ -188,8 +211,9 @@ class BaseClient(EnumEnforcer):
             return None
         return self.REFRESH_TOKEN_LIFETIME - self.token_metadata.token_age()
 
-    def set_refresh_token_expiry_warning(self, warn_before=24 * 60 * 60,
-                                         callback=None):
+    def set_refresh_token_expiry_warning(
+            self, warn_before: float | None = 24 * 60 * 60,
+            callback: Callable[[float], Any] | None = None) -> None:
         '''Configures the warning emitted as the refresh token approaches its
         seven day expiry. Once fewer than ``warn_before`` seconds remain, each
         request checks the expiry, and at most once an hour logs a warning and
@@ -208,7 +232,7 @@ class BaseClient(EnumEnforcer):
         self._expiry_callback = callback
         self._last_expiry_warning = None
 
-    def _check_refresh_token_expiry(self):
+    def _check_refresh_token_expiry(self) -> None:
         if self._expiry_warn_before is None:
             return
         remaining = self.refresh_token_expires_in()
@@ -236,7 +260,7 @@ class BaseClient(EnumEnforcer):
             except Exception:
                 self.logger.exception('Refresh token expiry callback raised')
 
-    def _translate_oauth_error(self, error):
+    def _translate_oauth_error(self, error: Any) -> Exception:
         '''Returns a clearer exception for OAuth errors caused by an expired
         refresh token, or the original error otherwise.'''
         remaining = self.refresh_token_expires_in()
@@ -253,15 +277,15 @@ class BaseClient(EnumEnforcer):
     ##########################################################################
     # Account hash resolution
 
-    def _account_number_in_path(self, path):
+    def _account_number_in_path(self, path: str) -> str | None:
         m = self._ACCOUNT_NUMBER_PATH.match(path)
         return None if m is None else m.group(2)
 
-    def _replace_account_number(self, path, account_hash):
+    def _replace_account_number(self, path: str, account_hash: str) -> str:
         return self._ACCOUNT_NUMBER_PATH.sub(
                 lambda m: m.group(1) + account_hash, path, count=1)
 
-    def _cache_account_hashes(self, resp):
+    def _cache_account_hashes(self, resp: Any) -> None:
         if resp.status_code != 200:
             raise AccountHashLookupError(
                     resp, 'failed to fetch account hashes: HTTP {}'.format(
@@ -270,7 +294,7 @@ class BaseClient(EnumEnforcer):
             self._account_hashes[str(account['accountNumber'])] = \
                     account['hashValue']
 
-    def _cached_account_hash(self, account_number):
+    def _cached_account_hash(self, account_number: str | int) -> str:
         try:
             return self._account_hashes[str(account_number)]
         except KeyError:
@@ -287,15 +311,15 @@ class BaseClient(EnumEnforcer):
     _DATETIME = datetime.datetime
     _DATE = datetime.date
 
-    def _log_response(self, resp, req_num, method):
+    def _log_response(self, resp: Any, req_num: int, method: str) -> None:
         self.logger.debug('Req %s: %s response: %s, content=%s',
             req_num, method, resp.status_code, resp.text)
 
-    def _req_num(self):
+    def _req_num(self) -> int:
         self.request_number += 1
         return self.request_number
 
-    def _assert_type(self, name, value, exp_types):
+    def _assert_type(self, name: str, value: Any, exp_types: list[type]) -> None:
         value_type = type(value)
         value_type_name = '{}.{}'.format(
             value_type.__module__, value_type.__name__)
@@ -310,7 +334,8 @@ class BaseClient(EnumEnforcer):
                     ', '.join(exp_type_names), name, value_type_name)
             raise ValueError(error_str)
 
-    def _format_date_as_iso(self, var_name, dt):
+    def _format_date_as_iso(
+            self, var_name: str, dt: datetime.date | datetime.datetime) -> str:
         '''Formats datetime or date objects as yyyy-MM-dd'T'HH:mm:ss.SSSZ.
         Timezone-aware datetimes are converted to UTC. Naive datetimes and dates
         are assumed to already be in UTC.'''
@@ -323,21 +348,22 @@ class BaseClient(EnumEnforcer):
 
         return dt.strftime('%Y-%m-%dT%H:%M:%SZ')
 
-    def _format_date_as_day(self, var_name, dt):
+    def _format_date_as_day(self, var_name: str, dt: datetime.date) -> str:
         '''Formats datetime or date objects as YYYY-MM-DD'''
         self._assert_type(var_name, dt, [self._DATE])
 
         return dt.strftime('%Y-%m-%d')
 
 
-    def _format_date_as_millis(self, var_name, dt):
+    def _format_date_as_millis(
+            self, var_name: str, dt: datetime.datetime) -> int:
         'Converts datetime objects to compatible millisecond values'
         self._assert_type(var_name, dt, [self._DATETIME])
 
         return int(dt.timestamp() * 1000)
 
 
-    def set_timeout(self, timeout):
+    def set_timeout(self, timeout: Any) -> None:
         '''Sets the timeout configuration for this client. Applies to all HTTP 
         calls.
 
@@ -348,7 +374,7 @@ class BaseClient(EnumEnforcer):
                         examples.'''
         self.session.timeout = timeout
 
-    def token_age(self):
+    def token_age(self) -> float:
         '''Get the age of the token used to create this client, in seconds. For 
         users who prefer to proactively delete their token files before the 
         become expired, this method can offer a hint for when to do so.
@@ -368,22 +394,26 @@ class BaseClient(EnumEnforcer):
             :meth:`get_accounts`'''
             POSITIONS = 'positions'
 
-    def get_account(self, account_hash, *, fields=None):
+    def get_account(
+            self, account_hash: str | int, *,
+            fields: (BaseClient.Account.Fields
+                     | Iterable[BaseClient.Account.Fields] | None) = None,
+            ) -> Any:
         '''Account balances, positions, and orders for a given account hash..
 
         :param fields: Balances displayed by default, additional fields can be
                        added here by adding values from :class:`Account.Fields`.
         '''
-        fields = self.convert_enum_iterable(fields, self.Account.Fields)
+        field_values = self.convert_enum_iterable(fields, self.Account.Fields)
 
-        params = {}
-        if fields:
-            params['fields'] = ','.join(fields)
+        params: dict[str, Any] = {}
+        if field_values:
+            params['fields'] = ','.join(field_values)
 
         path = '/trader/v1/accounts/{}'.format(account_hash)
         return self._get_request(path, params)
 
-    def get_account_numbers(self):
+    def get_account_numbers(self) -> Any:
         '''
         Returns a mapping from account IDs available to this token to the 
         account hash that should be passed whenever referring to that account in 
@@ -396,7 +426,11 @@ class BaseClient(EnumEnforcer):
         path = '/trader/v1/accounts/accountNumbers'
         return self._get_request(path, {})
 
-    def get_accounts(self, *, fields=None):
+    def get_accounts(
+            self, *,
+            fields: (BaseClient.Account.Fields
+                     | Iterable[BaseClient.Account.Fields] | None) = None,
+            ) -> Any:
         '''Account balances, positions, and orders for all linked accounts. Note 
         this method does not return account hashes. See 
         :ref:`this method <account_hashes_method>` for more detail.
@@ -404,11 +438,11 @@ class BaseClient(EnumEnforcer):
         :param fields: Balances displayed by default, additional fields can be
                        added here by adding values from :class:`Account.Fields`.
         '''
-        fields = self.convert_enum_iterable(fields, self.Account.Fields)
+        field_values = self.convert_enum_iterable(fields, self.Account.Fields)
 
-        params = {}
-        if fields:
-            params['fields'] = ','.join(fields)
+        params: dict[str, Any] = {}
+        if field_values:
+            params['fields'] = ','.join(field_values)
 
         path = '/trader/v1/accounts'
         return self._get_request(path, params)
@@ -417,12 +451,12 @@ class BaseClient(EnumEnforcer):
     ##########################################################################
     # Orders
 
-    def get_order(self, order_id, account_hash):
+    def get_order(self, order_id: int, account_hash: str | int) -> Any:
         '''Get a specific order for a specific account by its order ID'''
         path = '/trader/v1/accounts/{}/orders/{}'.format(account_hash, order_id)
         return self._get_request(path, {})
 
-    def cancel_order(self, order_id, account_hash):
+    def cancel_order(self, order_id: int, account_hash: str | int) -> Any:
         '''Cancel a specific order for a specific account'''
         path = '/trader/v1/accounts/{}/orders/{}'.format(account_hash, order_id)
         return self._delete_request(path)
@@ -453,12 +487,13 @@ class BaseClient(EnumEnforcer):
             PENDING_RECALL = 'PENDING_RECALL'
             UNKNOWN = 'UNKNOWN'
 
-    def _make_order_query(self,
-                          *,
-                          max_results=None,
-                          from_entered_datetime=None,
-                          to_entered_datetime=None,
-                          status=None):
+    def _make_order_query(
+            self,
+            *,
+            max_results: int | None = None,
+            from_entered_datetime: datetime.date | None = None,
+            to_entered_datetime: datetime.date | None = None,
+            status: BaseClient.Order.Status | None = None) -> dict[str, Any]:
         status = self.convert_enum(status, self.Order.Status)
 
         if from_entered_datetime is None:
@@ -468,7 +503,7 @@ class BaseClient(EnumEnforcer):
         if to_entered_datetime is None:
             to_entered_datetime = datetime.datetime.now(datetime.timezone.utc)
 
-        params = {
+        params: dict[str, Any] = {
             'fromEnteredTime': self._format_date_as_iso(
                 'from_entered_datetime', from_entered_datetime),
             'toEnteredTime': self._format_date_as_iso(
@@ -483,13 +518,14 @@ class BaseClient(EnumEnforcer):
 
         return params
 
-    def get_orders_for_account(self,
-                               account_hash,
-                               *,
-                               max_results=None,
-                               from_entered_datetime=None,
-                               to_entered_datetime=None,
-                               status=None):
+    def get_orders_for_account(
+            self,
+            account_hash: str | int,
+            *,
+            max_results: int | None = None,
+            from_entered_datetime: datetime.date | None = None,
+            to_entered_datetime: datetime.date | None = None,
+            status: BaseClient.Order.Status | None = None) -> Any:
         '''Orders for a specific account. Optionally specify a single status on 
         which to filter.
 
@@ -515,12 +551,13 @@ class BaseClient(EnumEnforcer):
             to_entered_datetime=to_entered_datetime,
             status=status))
 
-    def get_orders_for_all_linked_accounts(self,
-                                           *,
-                                           max_results=None,
-                                           from_entered_datetime=None,
-                                           to_entered_datetime=None,
-                                           status=None):
+    def get_orders_for_all_linked_accounts(
+            self,
+            *,
+            max_results: int | None = None,
+            from_entered_datetime: datetime.date | None = None,
+            to_entered_datetime: datetime.date | None = None,
+            status: BaseClient.Order.Status | None = None) -> Any:
         '''Orders for all linked accounts. Optionally specify a single status on 
         which to filter.
 
@@ -545,7 +582,9 @@ class BaseClient(EnumEnforcer):
             to_entered_datetime=to_entered_datetime,
             status=status))
 
-    def place_order(self, account_hash, order_spec):
+    def place_order(
+            self, account_hash: str | int,
+            order_spec: OrderBuilder | dict[str, Any]) -> Any:
         '''Place an order for a specific account. If order creation was
         successful, the response will contain the ID of the generated order. See
         :meth:`schwab.utils.Utils.extract_order_id` for more details. Note unlike
@@ -558,7 +597,9 @@ class BaseClient(EnumEnforcer):
         path = '/trader/v1/accounts/{}/orders'.format(account_hash)
         return self._post_request(path, order_spec)
 
-    def replace_order(self, account_hash, order_id, order_spec):
+    def replace_order(
+            self, account_hash: str | int, order_id: int,
+            order_spec: OrderBuilder | dict[str, Any]) -> Any:
         '''Replace an existing order for an account. The existing order will be
         replaced by the new order. Once replaced, the old order will be canceled
         and a new order will be created.'''
@@ -568,7 +609,9 @@ class BaseClient(EnumEnforcer):
         path = '/trader/v1/accounts/{}/orders/{}'.format(account_hash, order_id)
         return self._put_request(path, order_spec)
 
-    def preview_order(self, account_hash, order_spec):
+    def preview_order(
+            self, account_hash: str | int,
+            order_spec: OrderBuilder | dict[str, Any]) -> Any:
         '''Preview an order, i.e. test whether an order would be accepted by the 
         API and see the structure it would result in.'''
         if isinstance(order_spec, OrderBuilder):
@@ -601,12 +644,15 @@ class BaseClient(EnumEnforcer):
 
     def get_transactions(
             self,
-            account_hash,
+            account_hash: str | int,
             *,
-            start_date=None,
-            end_date=None,
-            transaction_types=None,
-            symbol=None):
+            start_date: datetime.date | None = None,
+            end_date: datetime.date | None = None,
+            transaction_types: (
+                BaseClient.Transactions.TransactionType
+                | Iterable[BaseClient.Transactions.TransactionType]
+                | None) = None,
+            symbol: str | None = None) -> Any:
         '''Transaction for a specific account.
 
         :param account_hash: Account hash corresponding to the account whose 
@@ -627,32 +673,31 @@ class BaseClient(EnumEnforcer):
         '''
         # Transaction types
         if transaction_types is None:
-            transaction_types = [
-                    t.value for t in self.Transactions.TransactionType]
+            type_values = [t.value for t in self.Transactions.TransactionType]
         else:
-            transaction_types = self.convert_enum_iterable(
+            type_values = self.convert_enum_iterable(
                 transaction_types, self.Transactions.TransactionType)
 
         # Start date
         if start_date is None:
-            start_date = self._format_date_as_iso(
+            start_date_str = self._format_date_as_iso(
                     'start_date',
                     datetime.datetime.now(datetime.timezone.utc)
                     - datetime.timedelta(days=60))
         else:
-            start_date = self._format_date_as_iso('start_date', start_date)
+            start_date_str = self._format_date_as_iso('start_date', start_date)
 
         # End date
         if end_date is None:
-            end_date = self._format_date_as_iso(
+            end_date_str = self._format_date_as_iso(
                     'end_date', datetime.datetime.now(datetime.timezone.utc))
         else:
-            end_date = self._format_date_as_iso('end_date', end_date)
+            end_date_str = self._format_date_as_iso('end_date', end_date)
 
-        params = {
-                'types':  ','.join(transaction_types),
-                'startDate': start_date,
-                'endDate': end_date,
+        params: dict[str, Any] = {
+                'types':  ','.join(type_values),
+                'startDate': start_date_str,
+                'endDate': end_date_str,
         }
 
         if symbol is not None:
@@ -661,7 +706,8 @@ class BaseClient(EnumEnforcer):
         path = '/trader/v1/accounts/{}/transactions'.format(account_hash)
         return self._get_request(path, params)
 
-    def get_transaction(self, account_hash, transaction_id):
+    def get_transaction(
+            self, account_hash: str | int, transaction_id: int) -> Any:
         '''Transaction for a specific account.
 
         :param account_hash: Account hash corresponding to the account whose 
@@ -677,7 +723,7 @@ class BaseClient(EnumEnforcer):
     ##########################################################################
     # User Info and Preferences
 
-    def get_user_preferences(self):
+    def get_user_preferences(self) -> Any:
         '''Preferences for the logged in account, including all linked
         accounts.'''
         path = '/trader/v1/userPreference'
@@ -695,7 +741,11 @@ class BaseClient(EnumEnforcer):
             REFERENCE = 'reference'
             REGULAR = 'regular'
 
-    def get_quote(self, symbol, *, fields=None):
+    def get_quote(
+            self, symbol: str, *,
+            fields: (BaseClient.Quote.Fields
+                     | Iterable[BaseClient.Quote.Fields] | None) = None,
+            ) -> Any:
         '''
         Get quote for a symbol. Note due to limitations in URL encoding, this
         method is not recommended for instruments with symbols symbols
@@ -706,16 +756,20 @@ class BaseClient(EnumEnforcer):
         :param fields: Fields to request. If unset, return all available data. 
                        i.e. all fields. See :class:`GetQuote.Field` for options.
         '''
-        fields = self.convert_enum_iterable(fields, self.Quote.Fields)
-        if fields:
-            params = {'fields': ','.join(fields)}
+        field_values = self.convert_enum_iterable(fields, self.Quote.Fields)
+        if field_values:
+            params: dict[str, Any] = {'fields': ','.join(field_values)}
         else:
             params = {}
 
         path = '/marketdata/v1/{}/quotes'.format(symbol)
         return self._get_request(path, params)
 
-    def get_quotes(self, symbols, *, fields=None, indicative=None):
+    def get_quotes(
+            self, symbols: str | Iterable[str], *,
+            fields: (BaseClient.Quote.Fields
+                     | Iterable[BaseClient.Quote.Fields] | None) = None,
+            indicative: bool | None = None) -> Any:
         '''Get quote for a symbol. This method supports all symbols, including
         those containing non-alphanumeric characters like ``/ES``.
 
@@ -726,13 +780,13 @@ class BaseClient(EnumEnforcer):
         if isinstance(symbols, str):
             symbols = [symbols]
 
-        params = {
+        params: dict[str, Any] = {
             'symbols': ','.join(symbols)
         }
 
-        fields = self.convert_enum_iterable(fields, self.Quote.Fields)
-        if fields:
-            params['fields'] = ','.join(fields)
+        field_values = self.convert_enum_iterable(fields, self.Quote.Fields)
+        if field_values:
+            params['fields'] = ','.join(field_values)
 
         if indicative is not None:
             if type(indicative) is not bool:
@@ -803,24 +857,24 @@ class BaseClient(EnumEnforcer):
 
     def get_option_chain(
             self,
-            symbol,
+            symbol: str,
             *,
-            contract_type=None,
-            strike_count=None,
-            include_underlying_quote=None,
-            strategy=None,
-            interval=None,
-            strike=None,
-            strike_range=None,
-            from_date=None,
-            to_date=None,
-            volatility=None,
-            underlying_price=None,
-            interest_rate=None,
-            days_to_expiration=None,
-            exp_month=None,
-            option_type=None,
-            entitlement=None):
+            contract_type: BaseClient.Options.ContractType | None = None,
+            strike_count: int | None = None,
+            include_underlying_quote: bool | None = None,
+            strategy: BaseClient.Options.Strategy | None = None,
+            interval: float | None = None,
+            strike: float | None = None,
+            strike_range: BaseClient.Options.StrikeRange | None = None,
+            from_date: datetime.date | None = None,
+            to_date: datetime.date | None = None,
+            volatility: float | None = None,
+            underlying_price: float | None = None,
+            interest_rate: float | None = None,
+            days_to_expiration: int | None = None,
+            exp_month: BaseClient.Options.ExpirationMonth | None = None,
+            option_type: BaseClient.Options.Type | None = None,
+            entitlement: BaseClient.Options.Entitlement | None = None) -> Any:
         '''Get option chain for an optionable Symbol.
 
         :param contract_type: Type of contracts to return in the chain. See
@@ -866,7 +920,7 @@ class BaseClient(EnumEnforcer):
         exp_month = self.convert_enum(exp_month, self.Options.ExpirationMonth)
         entitlement = self.convert_enum(entitlement, self.Options.Entitlement)
 
-        params = {
+        params: dict[str, Any] = {
             'symbol': symbol,
         }
 
@@ -910,7 +964,7 @@ class BaseClient(EnumEnforcer):
     ##########################################################################
     # Option Expiration Chain
 
-    def get_option_expiration_chain(self, symbol):
+    def get_option_expiration_chain(self, symbol: str) -> Any:
         '''Preferences for the logged in account, including all linked
         accounts.'''
         path = '/marketdata/v1/expirationchain'
@@ -974,16 +1028,16 @@ class BaseClient(EnumEnforcer):
 
     def get_price_history(
             self,
-            symbol,
+            symbol: str,
             *,
-            period_type=None,
-            period=None,
-            frequency_type=None,
-            frequency=None,
-            start_datetime=None,
-            end_datetime=None,
-            need_extended_hours_data=None,
-            need_previous_close=None):
+            period_type: BaseClient.PriceHistory.PeriodType | None = None,
+            period: BaseClient.PriceHistory.Period | None = None,
+            frequency_type: BaseClient.PriceHistory.FrequencyType | None = None,
+            frequency: BaseClient.PriceHistory.Frequency | None = None,
+            start_datetime: datetime.datetime | None = None,
+            end_datetime: datetime.datetime | None = None,
+            need_extended_hours_data: bool | None = None,
+            need_previous_close: bool | None = None) -> Any:
         '''Get price history for a symbol.
 
         :param period_type: The type of period to show.
@@ -1008,7 +1062,7 @@ class BaseClient(EnumEnforcer):
         frequency = self.convert_enum(
             frequency, self.PriceHistory.Frequency)
 
-        params = {
+        params: dict[str, Any] = {
                 'symbol': symbol,
         }
 
@@ -1038,7 +1092,10 @@ class BaseClient(EnumEnforcer):
     ##########################################################################
     # Price history utilities
 
-    def __normalize_start_and_end_datetimes(self, start_datetime, end_datetime):
+    def __normalize_start_and_end_datetimes(
+            self, start_datetime: datetime.datetime | None,
+            end_datetime: datetime.datetime | None
+            ) -> tuple[datetime.datetime, datetime.datetime]:
         if start_datetime is None:
             start_datetime = datetime.datetime(year=1971, month=1, day=1)
         if end_datetime is None:
@@ -1049,8 +1106,11 @@ class BaseClient(EnumEnforcer):
 
 
     def get_price_history_every_minute(
-            self, symbol, *, start_datetime=None, end_datetime=None, 
-            need_extended_hours_data=None, need_previous_close=None):
+            self, symbol: str, *,
+            start_datetime: datetime.datetime | None = None,
+            end_datetime: datetime.datetime | None = None,
+            need_extended_hours_data: bool | None = None,
+            need_previous_close: bool | None = None) -> Any:
         '''
         Fetch price history for a stock or ETF symbol at a per-minute
         granularity. This endpoint currently appears to return up to 48 days of
@@ -1073,8 +1133,11 @@ class BaseClient(EnumEnforcer):
 
 
     def get_price_history_every_five_minutes(
-            self, symbol, *, start_datetime=None, end_datetime=None, 
-            need_extended_hours_data=None, need_previous_close=None):
+            self, symbol: str, *,
+            start_datetime: datetime.datetime | None = None,
+            end_datetime: datetime.datetime | None = None,
+            need_extended_hours_data: bool | None = None,
+            need_previous_close: bool | None = None) -> Any:
         '''
         Fetch price history for a stock or ETF symbol at a per-five-minutes
         granularity. This endpoint currently appears to return approximately
@@ -1097,8 +1160,11 @@ class BaseClient(EnumEnforcer):
 
 
     def get_price_history_every_ten_minutes(
-            self, symbol, *, start_datetime=None, end_datetime=None, 
-            need_extended_hours_data=None, need_previous_close=None):
+            self, symbol: str, *,
+            start_datetime: datetime.datetime | None = None,
+            end_datetime: datetime.datetime | None = None,
+            need_extended_hours_data: bool | None = None,
+            need_previous_close: bool | None = None) -> Any:
         '''
         Fetch price history for a stock or ETF symbol at a per-ten-minutes
         granularity. This endpoint currently appears to return approximately
@@ -1121,8 +1187,11 @@ class BaseClient(EnumEnforcer):
 
 
     def get_price_history_every_fifteen_minutes(
-            self, symbol, *, start_datetime=None, end_datetime=None, 
-            need_extended_hours_data=None, need_previous_close=None):
+            self, symbol: str, *,
+            start_datetime: datetime.datetime | None = None,
+            end_datetime: datetime.datetime | None = None,
+            need_extended_hours_data: bool | None = None,
+            need_previous_close: bool | None = None) -> Any:
         '''
         Fetch price history for a stock or ETF symbol at a per-fifteen-minutes
         granularity. This endpoint currently appears to return approximately
@@ -1145,8 +1214,11 @@ class BaseClient(EnumEnforcer):
 
 
     def get_price_history_every_thirty_minutes(
-            self, symbol, *, start_datetime=None, end_datetime=None, 
-            need_extended_hours_data=None, need_previous_close=None):
+            self, symbol: str, *,
+            start_datetime: datetime.datetime | None = None,
+            end_datetime: datetime.datetime | None = None,
+            need_extended_hours_data: bool | None = None,
+            need_previous_close: bool | None = None) -> Any:
         '''
         Fetch price history for a stock or ETF symbol at a per-thirty-minutes
         granularity. This endpoint currently appears to return approximately
@@ -1169,8 +1241,11 @@ class BaseClient(EnumEnforcer):
 
 
     def get_price_history_every_day(
-            self, symbol, *, start_datetime=None, end_datetime=None, 
-            need_extended_hours_data=None, need_previous_close=None):
+            self, symbol: str, *,
+            start_datetime: datetime.datetime | None = None,
+            end_datetime: datetime.datetime | None = None,
+            need_extended_hours_data: bool | None = None,
+            need_previous_close: bool | None = None) -> Any:
         '''
         Fetch price history for a stock or ETF symbol at a daily granularity. 
         The exact period of time over which this endpoint returns data is 
@@ -1194,8 +1269,11 @@ class BaseClient(EnumEnforcer):
 
 
     def get_price_history_every_week(
-            self, symbol, *, start_datetime=None, end_datetime=None, 
-            need_extended_hours_data=None, need_previous_close=None):
+            self, symbol: str, *,
+            start_datetime: datetime.datetime | None = None,
+            end_datetime: datetime.datetime | None = None,
+            need_extended_hours_data: bool | None = None,
+            need_previous_close: bool | None = None) -> Any:
         '''
         Fetch price history for a stock or ETF symbol at a weekly granularity.
         The exact period of time over which this endpoint returns data is 
@@ -1252,7 +1330,10 @@ class BaseClient(EnumEnforcer):
             SIXTY = 60
         
 
-    def get_movers(self, index, *, sort_order=None, frequency=None):
+    def get_movers(
+            self, index: BaseClient.Movers.Index, *,
+            sort_order: BaseClient.Movers.SortOrder | None = None,
+            frequency: BaseClient.Movers.Frequency | None = None) -> Any:
         '''Get a list of the top ten movers for a given index.
 
         :param index: Category of mover. See :class:`Movers.Index` for valid 
@@ -1268,7 +1349,7 @@ class BaseClient(EnumEnforcer):
 
         path = '/marketdata/v1/movers/{}'.format(index)
 
-        params = {}
+        params: dict[str, Any] = {}
         if sort_order is not None:
             params['sort'] = sort_order
         if frequency is not None:
@@ -1288,17 +1369,22 @@ class BaseClient(EnumEnforcer):
             FUTURE = 'future'
             FOREX = 'forex'
 
-    def get_market_hours(self, markets, *, date=None):
+    def get_market_hours(
+            self,
+            markets: BaseClient.MarketHours.Market
+                | Iterable[BaseClient.MarketHours.Market],
+            *, date: datetime.date | None = None) -> Any:
         '''Retrieve market hours for specified markets
 
         :param markets: Markets for which to return trading hours.
         :param date: Date for which to return market hours. Accepts values up to 
                      one year from today. Accepts ``datetime.date``.
         '''
-        markets = self.convert_enum_iterable(markets, self.MarketHours.Market)
+        market_values = self.convert_enum_iterable(
+                markets, self.MarketHours.Market)
 
-        params = {
-                'markets': ','.join(markets)
+        params: dict[str, Any] = {
+                'markets': ','.join(market_values)
         }
         if date is not None:
             params['date'] = self._format_date_as_day('date', date)
@@ -1318,7 +1404,9 @@ class BaseClient(EnumEnforcer):
             SEARCH = 'search'
             FUNDAMENTAL = 'fundamental'
 
-    def get_instruments(self, symbols, projection):
+    def get_instruments(
+            self, symbols: str | Iterable[str],
+            projection: BaseClient.Instrument.Projection) -> Any:
         '''Get instrument details by using different search methods. Also used 
         to get fundamental instrument data by use of the ``FUNDAMENTAL`` 
         projection.
@@ -1365,7 +1453,7 @@ class BaseClient(EnumEnforcer):
 
         projection = self.convert_enum(projection, self.Instrument.Projection)
 
-        params = {
+        params: dict[str, Any] = {
                 'symbol': ','.join(symbols),
                 'projection': projection,
         }
@@ -1373,7 +1461,7 @@ class BaseClient(EnumEnforcer):
         return self._get_request('/marketdata/v1/instruments', params)
 
 
-    def get_instrument_by_cusip(self, cusip):
+    def get_instrument_by_cusip(self, cusip: str) -> Any:
         '''Get instrument information for a single instrument by CUSIP.
 
         :param cusip: String representing CUSIP of instrument for which to fetch 

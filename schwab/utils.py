@@ -1,24 +1,30 @@
 '''Implements additional functionality beyond what's implemented in the client
 module.'''
 
+from __future__ import annotations
+
 import re
+from collections.abc import Callable
+from enum import Enum
+from typing import Any, NoReturn
 
 from authlib.integrations.base_client import OAuthError
 
 
-def class_fullname(o):
+def class_fullname(o: type) -> str:
     return o.__module__ + '.' + o.__name__
 
 
 class EnumEnforcer:
-    def __init__(self, enforce_enums):
+    def __init__(self, enforce_enums: bool) -> None:
         self.enforce_enums = enforce_enums
 
-    def type_error(self, value, required_enum_type):
+    def type_error(
+            self, value: Any, required_enum_type: type[Enum]) -> NoReturn:
         possible_members_message = ''
 
         if isinstance(value, str):
-            possible_members = []
+            possible_members: list[str] = []
             for member in required_enum_type.__members__:
                 fullname = class_fullname(required_enum_type) + '.' + member
                 if value in fullname:
@@ -37,7 +43,8 @@ class EnumEnforcer:
                 type(value).__name__,
                 possible_members_message))
 
-    def convert_enum(self, value, required_enum_type):
+    def convert_enum(
+            self, value: Any, required_enum_type: type[Enum]) -> Any:
         if value is None:
             return None
 
@@ -48,14 +55,16 @@ class EnumEnforcer:
         else:
             return value
 
-    def convert_enum_iterable(self, iterable, required_enum_type):
+    def convert_enum_iterable(
+            self, iterable: Any,
+            required_enum_type: type[Enum]) -> Any:
         if iterable is None:
             return None
 
         if isinstance(iterable, required_enum_type):
             return [iterable.value]
 
-        values = []
+        values: list[Any] = []
         for value in iterable:
             if isinstance(value, required_enum_type):
                 values.append(value.value)
@@ -65,7 +74,7 @@ class EnumEnforcer:
                 values.append(value)
         return values
 
-    def set_enforce_enums(self, enforce_enums):
+    def set_enforce_enums(self, enforce_enums: bool) -> None:
         self.enforce_enums = enforce_enums
 
 
@@ -90,7 +99,8 @@ class AccountHashLookupError(Exception):
     expected and the account hashes could not be fetched from Schwab. The
     failed response is available as ``response``.
     '''
-    def __init__(self, response, *args, **kwargs):
+    def __init__(
+            self, response: Any, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.response = response
 
@@ -106,9 +116,9 @@ class RefreshTokenExpiredError(OAuthError):
 
 class LazyLog:
     'Helper to defer evaluation of expensive variables in log messages'
-    def __init__(self, func):
+    def __init__(self, func: Callable[[], str]) -> None:
         self.func = func
-    def __str__(self):
+    def __str__(self) -> str:
         return self.func()
 
 
@@ -116,7 +126,7 @@ class Utils(EnumEnforcer):
     '''Helper for placing orders on equities. Provides easy-to-use
     implementations for common tasks such as market and limit orders.'''
 
-    def __init__(self, client, account_hash):
+    def __init__(self, client: Any, account_hash: str) -> None:
         '''Creates a new ``Utils`` instance. For convenience, this object
         assumes the user wants to work with a single account at a time.
         ``account_hash`` may also be a plain account number.'''
@@ -125,11 +135,11 @@ class Utils(EnumEnforcer):
         self.client = client
         self.account_hash = account_hash
 
-    def set_account_hash(self, account_hash):
+    def set_account_hash(self, account_hash: str) -> None:
         '''Set the account hash used by this ``Utils`` instance.'''
         self.account_hash = account_hash
 
-    def extract_order_id(self, place_order_response):
+    def extract_order_id(self, place_order_response: Any) -> int | None:
         '''Attempts to extract the order hash from a response object returned by
         :meth:`Client.place_order() <schwab.client.Client.place_order>`. Return
         ``None`` if the order location is not contained in the response.

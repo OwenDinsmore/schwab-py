@@ -1,10 +1,21 @@
+from __future__ import annotations
+
 import autopep8
 import schwab
 
 from collections import defaultdict
+from collections.abc import Mapping
+from enum import Enum
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from typing import TypeAlias
+
+    from schwab.orders.generic import OrderBuilder
 
 
-def _call_setters_with_values(order, builder):
+def _call_setters_with_values(
+        order: Mapping[str, Any], builder: OrderBuilder) -> None:
     '''
     For each field in fields_and_setters, if it exists as a key in the order
     object, pass its value to the appropriate setter on the order builder.
@@ -23,7 +34,7 @@ def _call_setters_with_values(order, builder):
 
 
 # Top-level fields
-_FIELDS_AND_SETTERS = (
+_FIELDS_AND_SETTERS: tuple[tuple[str, str, type[Enum] | None], ...] = (
     ('session', 'set_session', schwab.orders.common.Session),
     ('duration', 'set_duration', schwab.orders.common.Duration),
     ('orderType', 'set_order_type', schwab.orders.common.OrderType),
@@ -59,7 +70,8 @@ _FIELDS_AND_SETTERS = (
         schwab.orders.common.OrderStrategyType),
 )
 
-def construct_repeat_order(historical_order):
+def construct_repeat_order(
+        historical_order: Mapping[str, Any]) -> OrderBuilder:
     builder = schwab.orders.generic.OrderBuilder()
 
     # Top-level fields
@@ -104,7 +116,8 @@ def construct_repeat_order(historical_order):
 # AST generation
 
 
-def code_for_builder(builder, var_name=None):
+def code_for_builder(
+        builder: OrderBuilder, var_name: str | None = None) -> str:
     '''
     Returns code that can be executed to construct the given builder, including
     import statements.
@@ -115,8 +128,8 @@ def code_for_builder(builder, var_name=None):
     '''
     ast = construct_order_ast(builder)
 
-    imports = defaultdict(set)
-    lines = []
+    imports: defaultdict[str, set[str]] = defaultdict(set)
+    lines: list[str] = []
     ast.render(imports, lines)
 
     import_lines = []
@@ -141,11 +154,13 @@ def code_for_builder(builder, var_name=None):
 
 
 class FirstTriggersSecondAST:
-    def __init__(self, first, second):
+    def __init__(self, first: _OrderAST, second: _OrderAST) -> None:
         self.first = first
         self.second = second
 
-    def render(self, imports, lines, paren_depth=0):
+    def render(
+            self, imports: defaultdict[str, set[str]], lines: list[str],
+            paren_depth: int = 0) -> None:
         imports['schwab.orders.common'].add('first_triggers_second')
 
         lines.append('first_triggers_second(')
@@ -156,11 +171,13 @@ class FirstTriggersSecondAST:
 
 
 class OneCancelsOtherAST:
-    def __init__(self, one, other):
+    def __init__(self, one: _OrderAST, other: _OrderAST) -> None:
         self.one = one
         self.other = other
 
-    def render(self, imports, lines, paren_depth=0):
+    def render(
+            self, imports: defaultdict[str, set[str]], lines: list[str],
+            paren_depth: int = 0) -> None:
         imports['schwab.orders.common'].add('one_cancels_other')
 
         lines.append('one_cancels_other(')
@@ -171,12 +188,16 @@ class OneCancelsOtherAST:
 
 
 class FieldAST:
-    def __init__(self, setter_name, enum_type, value):
+    def __init__(
+            self, setter_name: str, enum_type: type[Enum] | None, value: Any
+    ) -> None:
         self.setter_name = setter_name
         self.enum_type = enum_type
         self.value = value
 
-    def render(self, imports, lines, paren_depth=0):
+    def render(
+            self, imports: defaultdict[str, set[str]], lines: list[str],
+            paren_depth: int = 0) -> None:
         value = self.value
         if self.enum_type:
             imports[self.enum_type.__module__].add(self.enum_type.__qualname__)
@@ -186,38 +207,47 @@ class FieldAST:
 
 
 class EquityOrderLegAST:
-    def __init__(self, instruction, symbol, quantity):
+    def __init__(
+            self, instruction: str, symbol: str, quantity: int | float
+    ) -> None:
         self.instruction = instruction
         self.symbol = symbol
         self.quantity = quantity
 
-    def render(self, imports, lines, paren_depth=0):
+    def render(
+            self, imports: defaultdict[str, set[str]], lines: list[str],
+            paren_depth: int = 0) -> None:
         imports['schwab.orders.common'].add('EquityInstruction')
         lines.append('.add_equity_leg(EquityInstruction.{}, "{}", {})'.format(
             self.instruction, self.symbol, self.quantity))
 
 
 class OptionOrderLegAST:
-    def __init__(self, instruction, symbol, quantity):
+    def __init__(
+            self, instruction: str, symbol: str, quantity: int | float
+    ) -> None:
         self.instruction = instruction
         self.symbol = symbol
         self.quantity = quantity
 
-    def render(self, imports, lines, paren_depth=0):
+    def render(
+            self, imports: defaultdict[str, set[str]], lines: list[str],
+            paren_depth: int = 0) -> None:
         imports['schwab.orders.common'].add('OptionInstruction')
         lines.append('.add_option_leg(OptionInstruction.{}, "{}", {})'.format(
             self.instruction, self.symbol, self.quantity))
 
 
 class GenericBuilderAST:
-    def __init__(self, builder):
-        self.top_level_fields = []
+    def __init__(self, builder: OrderBuilder) -> None:
+        self.top_level_fields: list[
+            FieldAST | EquityOrderLegAST | OptionOrderLegAST] = []
         for name, setter, enum_type in sorted(_FIELDS_AND_SETTERS):
             value = getattr(builder, '_'+name)
             if value is not None:
                 self.top_level_fields.append(FieldAST(setter, enum_type, value))
 
-        for leg in builder._orderLegCollection:
+        for leg in builder._orderLegCollection:  # type: ignore[union-attr]
             if leg['instrument']._assetType == 'EQUITY':
                 self.top_level_fields.append(EquityOrderLegAST(
                     leg['instruction'], leg['instrument']._symbol, 
@@ -230,7 +260,9 @@ class GenericBuilderAST:
                 raise ValueError('unknown leg asset type {}'.format(
                     leg['instrument']._assetType))
 
-    def render(self, imports, lines, paren_depth=0):
+    def render(
+            self, imports: defaultdict[str, set[str]], lines: list[str],
+            paren_depth: int = 0) -> None:
         imports['schwab.orders.generic'].add('OrderBuilder')
 
         lines.append('OrderBuilder() \\')
@@ -241,14 +273,22 @@ class GenericBuilderAST:
                 lines[-1] += ' \\'
 
 
-def construct_order_ast(builder):
+if TYPE_CHECKING:
+    _OrderAST: TypeAlias = (
+        FirstTriggersSecondAST | OneCancelsOtherAST | GenericBuilderAST)
+
+
+def construct_order_ast(builder: OrderBuilder) -> _OrderAST:
+    # Builders created by construct_repeat_order always have builder children
+    children = cast('list[OrderBuilder]', builder._childOrderStrategies)
+
     if builder._orderStrategyType == 'OCO':
         return OneCancelsOtherAST(
-                construct_order_ast(builder._childOrderStrategies[0]),
-                construct_order_ast(builder._childOrderStrategies[1]))
+                construct_order_ast(children[0]),
+                construct_order_ast(children[1]))
     elif builder._orderStrategyType == 'TRIGGER':
         return FirstTriggersSecondAST(
                 GenericBuilderAST(builder),
-                construct_order_ast(builder._childOrderStrategies[0]))
+                construct_order_ast(children[0]))
     else:
         return GenericBuilderAST(builder)

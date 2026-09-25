@@ -62,6 +62,26 @@ existing tests to pass. You can run your tests using:
 
   make test
 
++++++++++++++++++++++
+Keep type hints valid
++++++++++++++++++++++
+
+All code is type annotated and checked with `mypy <https://mypy-lang.org/>`__,
+which CI runs:
+
+.. code-block:: shell
+
+  mypy
+
+The API methods of ``Client`` and ``AsyncClient`` are defined once, in
+``schwab/client/base.py``, and their types for each client come from generated
+stub files. If you add or change a client method, regenerate the stubs; a test
+fails if they're out of date:
+
+.. code-block:: shell
+
+  python tools/generate_client_stubs.py
+
 ++++++++++++++++++
 Document your code
 ++++++++++++++++++

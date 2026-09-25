@@ -1,5 +1,9 @@
+from __future__ import annotations
+
 import decimal
 import warnings
+
+from typing import Any
 
 
 from schwab.orders import common
@@ -8,7 +12,7 @@ from schwab.utils import EnumEnforcer
 from schwab._http import httpx
 
 
-def _build_object(obj):
+def _build_object(obj: Any) -> Any:
     # Literals are passed straight through
     if isinstance(obj, str) or isinstance(obj, int) or isinstance(obj, float):
         return obj
@@ -34,14 +38,14 @@ def _build_object(obj):
         return ret
 
 
-def truncate_float(flt):
+def truncate_float(flt: float) -> str:
     warnings.warn('passing floats to set_price and set_stop_price is '+
                   'deprecated and will be removed soon. Please update your '+
                   'code to pass prices as strings instead.')
     return _truncate_price(flt)
 
 
-def _truncate_price(price):
+def _truncate_price(price: str | decimal.Decimal | float) -> str:
     '''
     Truncates (not rounds) a price to four decimal places if its absolute value
     is less than one, and to two decimal places otherwise.
@@ -72,32 +76,33 @@ class OrderBuilder(EnumEnforcer):
     your own risk.
     '''
 
-    def __init__(self, *, enforce_enums=True):
+    def __init__(self, *, enforce_enums: bool = True) -> None:
         super().__init__(enforce_enums)
 
-        self._session = None
-        self._duration = None
-        self._orderType = None
-        self._complexOrderStrategyType = None
-        self._quantity = None
-        self._destinationLinkName = None
-        self._stopPrice = None
-        self._stopPriceLinkBasis = None
-        self._stopPriceLinkType = None
-        self._stopPriceOffset = None
-        self._stopType = None
-        self._priceLinkBasis = None
-        self._priceLinkType = None
-        self._priceOffset = None
-        self._price = None
-        self._orderLegCollection = None
-        self._activationPrice = None
-        self._specialInstruction = None
-        self._orderStrategyType = None
-        self._childOrderStrategies = None
+        self._session: Any = None
+        self._duration: Any = None
+        self._orderType: Any = None
+        self._complexOrderStrategyType: Any = None
+        self._quantity: int | float | None = None
+        self._destinationLinkName: Any = None
+        self._stopPrice: str | float | None = None
+        self._stopPriceLinkBasis: Any = None
+        self._stopPriceLinkType: Any = None
+        self._stopPriceOffset: int | float | None = None
+        self._stopType: Any = None
+        self._priceLinkBasis: Any = None
+        self._priceLinkType: Any = None
+        self._priceOffset: int | float | None = None
+        self._price: str | float | None = None
+        self._orderLegCollection: list[dict[str, Any]] | None = None
+        self._activationPrice: int | float | None = None
+        self._specialInstruction: Any = None
+        self._orderStrategyType: Any = None
+        self._childOrderStrategies: (
+            list[OrderBuilder | dict[str, Any]] | None) = None
 
     # Session
-    def set_session(self, session):
+    def set_session(self, session: common.Session) -> OrderBuilder:
         '''
         Set the order session. See :class:`~schwab.orders.common.Session` for
         details.
@@ -106,7 +111,7 @@ class OrderBuilder(EnumEnforcer):
         self._session = session
         return self
 
-    def clear_session(self):
+    def clear_session(self) -> OrderBuilder:
         '''
         Clear the order session.
         '''
@@ -114,7 +119,7 @@ class OrderBuilder(EnumEnforcer):
         return self
 
     # Duration
-    def set_duration(self, duration):
+    def set_duration(self, duration: common.Duration) -> OrderBuilder:
         '''
         Set the order duration. See :class:`~schwab.orders.common.Duration` for
         details.
@@ -123,7 +128,7 @@ class OrderBuilder(EnumEnforcer):
         self._duration = duration
         return self
 
-    def clear_duration(self):
+    def clear_duration(self) -> OrderBuilder:
         '''
         Clear the order duration.
         '''
@@ -131,7 +136,7 @@ class OrderBuilder(EnumEnforcer):
         return self
 
     # OrderType
-    def set_order_type(self, order_type):
+    def set_order_type(self, order_type: common.OrderType) -> OrderBuilder:
         '''
         Set the order type. See :class:`~schwab.orders.common.OrderType` for
         details.
@@ -140,7 +145,7 @@ class OrderBuilder(EnumEnforcer):
         self._orderType = order_type
         return self
 
-    def clear_order_type(self):
+    def clear_order_type(self) -> OrderBuilder:
         '''
         Clear the order type.
         '''
@@ -148,7 +153,9 @@ class OrderBuilder(EnumEnforcer):
         return self
 
     # ComplexOrderStrategyType
-    def set_complex_order_strategy_type(self, complex_order_strategy_type):
+    def set_complex_order_strategy_type(
+            self, complex_order_strategy_type: common.ComplexOrderStrategyType
+    ) -> OrderBuilder:
         '''
         Set the complex order strategy type. See
         :class:`~schwab.orders.common.ComplexOrderStrategyType` for details.
@@ -158,7 +165,7 @@ class OrderBuilder(EnumEnforcer):
         self._complexOrderStrategyType = complex_order_strategy_type
         return self
 
-    def clear_complex_order_strategy_type(self):
+    def clear_complex_order_strategy_type(self) -> OrderBuilder:
         '''
         Clear the complex order strategy type.
         '''
@@ -166,7 +173,7 @@ class OrderBuilder(EnumEnforcer):
         return self
 
     # Quantity
-    def set_quantity(self, quantity):
+    def set_quantity(self, quantity: int | float) -> OrderBuilder:
         '''
         Exact semantics unknown. See :ref:`undocumented_quantity` for a
         discussion.
@@ -176,7 +183,7 @@ class OrderBuilder(EnumEnforcer):
         self._quantity = quantity
         return self
 
-    def clear_quantity(self):
+    def clear_quantity(self) -> OrderBuilder:
         '''
         Clear the order-level quantity. Note this does not affect order legs.
         '''
@@ -184,7 +191,8 @@ class OrderBuilder(EnumEnforcer):
         return self
 
     # DestinationLinkName
-    def set_destination_link_name(self, destination_link_name):
+    def set_destination_link_name(
+            self, destination_link_name: common.Destination) -> OrderBuilder:
         '''
         Set the destination link name. See
         :class:`~schwab.orders.common.Destination` for details.
@@ -194,7 +202,7 @@ class OrderBuilder(EnumEnforcer):
         self._destinationLinkName = destination_link_name
         return self
 
-    def clear_destination_link_name(self):
+    def clear_destination_link_name(self) -> OrderBuilder:
         '''
         Clear the destination link name
         '''
@@ -202,7 +210,8 @@ class OrderBuilder(EnumEnforcer):
         return self
 
     # StopPrice
-    def set_stop_price(self, stop_price):
+    def set_stop_price(
+            self, stop_price: str | decimal.Decimal | float) -> OrderBuilder:
         '''
         Set the stop price. Note price can be passed as a `str`, a
         `decimal.Decimal`, or a `float`. See :ref:`number_truncation`.
@@ -215,7 +224,7 @@ class OrderBuilder(EnumEnforcer):
             self._stopPrice = truncate_float(stop_price)
         return self
 
-    def copy_stop_price(self, stop_price):
+    def copy_stop_price(self, stop_price: str | float) -> OrderBuilder:
         '''
         Directly set the stop price, avoiding all the validation and truncation
         logic from :func:`set_stop_price`.
@@ -223,7 +232,7 @@ class OrderBuilder(EnumEnforcer):
         self._stopPrice = stop_price
         return self
 
-    def clear_stop_price(self):
+    def clear_stop_price(self) -> OrderBuilder:
         '''
         Clear the stop price.
         '''
@@ -231,7 +240,9 @@ class OrderBuilder(EnumEnforcer):
         return self
 
     # StopPriceLinkBasis
-    def set_stop_price_link_basis(self, stop_price_link_basis):
+    def set_stop_price_link_basis(
+            self, stop_price_link_basis: common.StopPriceLinkBasis
+    ) -> OrderBuilder:
         '''
         Set the stop price link basis. See
         :class:`~schwab.orders.common.StopPriceLinkBasis` for details.
@@ -241,7 +252,7 @@ class OrderBuilder(EnumEnforcer):
         self._stopPriceLinkBasis = stop_price_link_basis
         return self
 
-    def clear_stop_price_link_basis(self):
+    def clear_stop_price_link_basis(self) -> OrderBuilder:
         '''
         Clear the stop price link basis.
         '''
@@ -249,7 +260,9 @@ class OrderBuilder(EnumEnforcer):
         return self
 
     # StopPriceLinkType
-    def set_stop_price_link_type(self, stop_price_link_type):
+    def set_stop_price_link_type(
+            self, stop_price_link_type: common.StopPriceLinkType
+    ) -> OrderBuilder:
         '''
         Set the stop price link type. See
         :class:`~schwab.orders.common.StopPriceLinkType` for details.
@@ -259,7 +272,7 @@ class OrderBuilder(EnumEnforcer):
         self._stopPriceLinkType = stop_price_link_type
         return self
 
-    def clear_stop_price_link_type(self):
+    def clear_stop_price_link_type(self) -> OrderBuilder:
         '''
         Clear the stop price link type.
         '''
@@ -267,14 +280,15 @@ class OrderBuilder(EnumEnforcer):
         return self
 
     # StopPriceOffset
-    def set_stop_price_offset(self, stop_price_offset):
+    def set_stop_price_offset(
+            self, stop_price_offset: int | float) -> OrderBuilder:
         '''
         Set the stop price offset.
         '''
         self._stopPriceOffset = stop_price_offset
         return self
 
-    def clear_stop_price_offset(self):
+    def clear_stop_price_offset(self) -> OrderBuilder:
         '''
         Clear the stop price offset.
         '''
@@ -282,7 +296,7 @@ class OrderBuilder(EnumEnforcer):
         return self
 
     # StopType
-    def set_stop_type(self, stop_type):
+    def set_stop_type(self, stop_type: common.StopType) -> OrderBuilder:
         '''
         Set the stop type. See
         :class:`~schwab.orders.common.StopType` for more details.
@@ -291,7 +305,7 @@ class OrderBuilder(EnumEnforcer):
         self._stopType = stop_type
         return self
 
-    def clear_stop_type(self):
+    def clear_stop_type(self) -> OrderBuilder:
         '''
         Clear the stop type.
         '''
@@ -299,7 +313,8 @@ class OrderBuilder(EnumEnforcer):
         return self
 
     # PriceLinkBasis
-    def set_price_link_basis(self, price_link_basis):
+    def set_price_link_basis(
+            self, price_link_basis: common.PriceLinkBasis) -> OrderBuilder:
         '''
         Set the price link basis. See
         :class:`~schwab.orders.common.PriceLinkBasis` for details.
@@ -309,7 +324,7 @@ class OrderBuilder(EnumEnforcer):
         self._priceLinkBasis = price_link_basis
         return self
 
-    def clear_price_link_basis(self):
+    def clear_price_link_basis(self) -> OrderBuilder:
         '''
         Clear the price link basis.
         '''
@@ -317,7 +332,8 @@ class OrderBuilder(EnumEnforcer):
         return self
 
     # PriceLinkType
-    def set_price_link_type(self, price_link_type):
+    def set_price_link_type(
+            self, price_link_type: common.PriceLinkType) -> OrderBuilder:
         '''
         Set the price link type. See
         :class:`~schwab.orders.common.PriceLinkType` for more details.
@@ -327,14 +343,14 @@ class OrderBuilder(EnumEnforcer):
         self._priceLinkType = price_link_type
         return self
 
-    def clear_price_link_type(self):
+    def clear_price_link_type(self) -> OrderBuilder:
         '''
         Clear the price link basis.
         '''
         self._priceLinkType = None
         return self
 
-    def set_price_offset(self, price_offset):
+    def set_price_offset(self, price_offset: int | float) -> OrderBuilder:
         '''
         Set the price offset. Used with ``TRAILING_STOP_LIMIT`` orders to
         determine the limit price relative to the trailing stop price.
@@ -342,7 +358,7 @@ class OrderBuilder(EnumEnforcer):
         self._priceOffset = price_offset
         return self
 
-    def clear_price_offset(self):
+    def clear_price_offset(self) -> OrderBuilder:
         '''
         Clear the price offset.
         '''
@@ -350,7 +366,7 @@ class OrderBuilder(EnumEnforcer):
         return self
 
     # Price
-    def set_price(self, price):
+    def set_price(self, price: str | decimal.Decimal | float) -> OrderBuilder:
         '''
         Set the order price. Note price can be passed as a `str`, a
         `decimal.Decimal`, or a `float`. See :ref:`number_truncation`.
@@ -363,7 +379,7 @@ class OrderBuilder(EnumEnforcer):
             self._price = truncate_float(price)
         return self
 
-    def copy_price(self, price):
+    def copy_price(self, price: str | float) -> OrderBuilder:
         '''
         Directly set the stop price, avoiding all the validation and truncation
         logic from :func:`set_price`.
@@ -371,7 +387,7 @@ class OrderBuilder(EnumEnforcer):
         self._price = price
         return self
 
-    def clear_price(self):
+    def clear_price(self) -> OrderBuilder:
         '''
         Clear the order price
         '''
@@ -379,7 +395,8 @@ class OrderBuilder(EnumEnforcer):
         return self
 
     # ActivationPrice
-    def set_activation_price(self, activation_price):
+    def set_activation_price(
+            self, activation_price: int | float) -> OrderBuilder:
         '''
         Set the activation price.
         '''
@@ -388,7 +405,7 @@ class OrderBuilder(EnumEnforcer):
         self._activationPrice = activation_price
         return self
 
-    def clear_activation_price(self):
+    def clear_activation_price(self) -> OrderBuilder:
         '''
         Clear the activation price.
         '''
@@ -396,7 +413,9 @@ class OrderBuilder(EnumEnforcer):
         return self
 
     # SpecialInstruction
-    def set_special_instruction(self, special_instruction):
+    def set_special_instruction(
+            self, special_instruction: common.SpecialInstruction
+    ) -> OrderBuilder:
         '''
         Set the special instruction. See
         :class:`~schwab.orders.common.SpecialInstruction` for details.
@@ -406,7 +425,7 @@ class OrderBuilder(EnumEnforcer):
         self._specialInstruction = special_instruction
         return self
 
-    def clear_special_instruction(self):
+    def clear_special_instruction(self) -> OrderBuilder:
         '''
         Clear the special instruction.
         '''
@@ -414,7 +433,9 @@ class OrderBuilder(EnumEnforcer):
         return self
 
     # OrderStrategyType
-    def set_order_strategy_type(self, order_strategy_type):
+    def set_order_strategy_type(
+            self, order_strategy_type: common.OrderStrategyType
+    ) -> OrderBuilder:
         '''
         Set the order strategy type. See
         :class:`~schwab.orders.common.OrderStrategyType` for more details.
@@ -424,7 +445,7 @@ class OrderBuilder(EnumEnforcer):
         self._orderStrategyType = order_strategy_type
         return self
 
-    def clear_order_strategy_type(self):
+    def clear_order_strategy_type(self) -> OrderBuilder:
         '''
         Clear the order strategy type.
         '''
@@ -432,7 +453,9 @@ class OrderBuilder(EnumEnforcer):
         return self
 
     # ChildOrderStrategies
-    def add_child_order_strategy(self, child_order_strategy):
+    def add_child_order_strategy(
+            self, child_order_strategy: OrderBuilder | dict[str, Any]
+    ) -> OrderBuilder:
         if isinstance(child_order_strategy, httpx.Response):
             raise ValueError(
                     'Child order cannot be a response. See here for ' +
@@ -449,12 +472,15 @@ class OrderBuilder(EnumEnforcer):
         self._childOrderStrategies.append(child_order_strategy)
         return self
 
-    def clear_child_order_strategies(self):
+    def clear_child_order_strategies(self) -> OrderBuilder:
         self._childOrderStrategies = None
         return self
 
     # OrderLegCollection
-    def __add_order_leg(self, instruction, instrument, quantity):
+    def __add_order_leg(
+            self, instruction: Any,
+            instrument: common.EquityInstrument | common.OptionInstrument,
+            quantity: int | float) -> OrderBuilder:
         # instruction is assumed to have been verified
 
         if quantity <= 0:
@@ -471,7 +497,9 @@ class OrderBuilder(EnumEnforcer):
 
         return self
 
-    def add_equity_leg(self, instruction, symbol, quantity):
+    def add_equity_leg(
+            self, instruction: common.EquityInstruction, symbol: str,
+            quantity: int | float) -> OrderBuilder:
         '''
         Add an equity order leg.
 
@@ -485,7 +513,9 @@ class OrderBuilder(EnumEnforcer):
         return self.__add_order_leg(
             instruction, common.EquityInstrument(symbol), quantity)
 
-    def add_option_leg(self, instruction, symbol, quantity):
+    def add_option_leg(
+            self, instruction: common.OptionInstruction, symbol: str,
+            quantity: int | float) -> OrderBuilder:
         '''
         Add an option order leg.
 
@@ -499,7 +529,7 @@ class OrderBuilder(EnumEnforcer):
         return self.__add_order_leg(
             instruction, common.OptionInstrument(symbol), quantity)
 
-    def clear_order_legs(self):
+    def clear_order_legs(self) -> OrderBuilder:
         '''
         Clear all order legs.
         '''
@@ -508,5 +538,5 @@ class OrderBuilder(EnumEnforcer):
 
     # Build
 
-    def build(self):
+    def build(self) -> dict[str, Any]:
         return _build_object(self)

@@ -1,6 +1,10 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from collections import defaultdict, deque
+from collections.abc import Callable, Iterable, Mapping
 from enum import Enum
+from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
 
 import asyncio
 import copy
@@ -8,7 +12,6 @@ from schwab._http import httpx
 import inspect
 import json
 import logging
-import schwab
 import warnings
 
 import websockets.asyncio.client as ws_client
@@ -16,10 +19,19 @@ import websockets.exceptions
 
 from .utils import EnumEnforcer, LazyLog
 
+if TYPE_CHECKING:
+    import ssl
+    from types import TracebackType
+
+    from schwab.client import AsyncClient, Client
+
+
+Handler = Callable[[dict[str, Any]], Any]
+
 
 class StreamJsonDecoder(ABC):
     @abstractmethod
-    def decode_json_string(self, raw):
+    def decode_json_string(self, raw: str) -> Any:
         '''
         Parse a JSON-formatted string into a proper object. Raises
         ``JSONDecodeError`` on parse failure.
@@ -28,21 +40,26 @@ class StreamJsonDecoder(ABC):
 
 
 class NaiveJsonStreamDecoder(StreamJsonDecoder):
-    def decode_json_string(self, raw):
+    def decode_json_string(self, raw: str) -> Any:
         return json.loads(raw)
 
 
-def get_logger():
+def get_logger() -> logging.Logger:
     return logging.getLogger(__name__)
 
 
+_E = TypeVar('_E', bound='_BaseFieldEnum')
+
+
 class _BaseFieldEnum(Enum):
+    _key_mapping: ClassVar[dict[str, str]]
+
     @classmethod
-    def all_fields(cls):
+    def all_fields(cls: type[_E]) -> list[_E]:
         return list(cls)
 
     @classmethod
-    def key_mapping(cls):
+    def key_mapping(cls) -> dict[str, str]:
         try:
             return cls._key_mapping
         except AttributeError:
@@ -52,7 +69,8 @@ class _BaseFieldEnum(Enum):
             return cls._key_mapping
 
     @classmethod
-    def relabel_message(cls, old_msg, new_msg):
+    def relabel_message(cls, old_msg: dict[str, Any],
+                        new_msg: dict[str, Any]) -> None:
         # Make a copy of the items so we can modify the dict during iteration
         for old_key, value in list(old_msg.items()):
             if old_key in cls.key_mapping():
@@ -61,13 +79,15 @@ class _BaseFieldEnum(Enum):
 
 
 class UnexpectedResponse(Exception):
-    def __init__(self, response, *args, **kwargs):
+    def __init__(self, response: dict[str, Any], *args: Any,
+                 **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.response = response
 
 
 class UnexpectedResponseCode(Exception):
-    def __init__(self, response, *args, **kwargs):
+    def __init__(self, response: dict[str, Any], *args: Any,
+                 **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.response = response
 
@@ -80,7 +100,8 @@ class StreamResponseTimeout(Exception):
     socket is still open, so callers can choose to retry the operation or
     reconnect.
     '''
-    def __init__(self, request_id, service, command, *args, **kwargs):
+    def __init__(self, request_id: int, service: str, command: str,
+                 *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.request_id = request_id
         self.service = service
@@ -88,21 +109,24 @@ class StreamResponseTimeout(Exception):
 
 
 class UnparsableMessage(Exception):
-    def __init__(self, raw_msg, json_parse_exception, *args, **kwargs):
+    def __init__(self, raw_msg: str,
+                 json_parse_exception: json.JSONDecodeError, *args: Any,
+                 **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.raw_msg = raw_msg
         self.json_parse_exception = json_parse_exception
 
 
 class _Handler:
-    def __init__(self, func, field_enum_type):
+    def __init__(self, func: Handler,
+                 field_enum_type: type[_BaseFieldEnum]) -> None:
         self._func = func
         self._field_enum_type = field_enum_type
 
-    def __call__(self, *args, **kwargs):
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
         return self._func(*args, **kwargs)
 
-    def label_message(self, msg):
+    def label_message(self, msg: dict[str, Any]) -> dict[str, Any]:
         if 'content' in msg:
             new_msg = copy.deepcopy(msg)
             for idx in range(len(msg['content'])):
@@ -115,10 +139,15 @@ class _Handler:
 
 class StreamClient(EnumEnforcer):
 
-    def __init__(self, client, *, account_id=None,
-                 enforce_enums=True, ssl_context=None, response_timeout=30.0,
-                 handler_error_callback=None, auto_reconnect=False,
-                 max_reconnect_attempts=None):
+    def __init__(self, client: Client | AsyncClient, *,
+                 account_id: str | None = None,
+                 enforce_enums: bool = True,
+                 ssl_context: ssl.SSLContext | None = None,
+                 response_timeout: float | None = 30.0,
+                 handler_error_callback: Callable[
+                     [BaseException, dict[str, Any]], Any] | None = None,
+                 auto_reconnect: bool = False,
+                 max_reconnect_attempts: int | None = None) -> None:
         '''
         :param response_timeout: Maximum number of seconds to wait for the
                                  server to answer a request such as a login or
@@ -148,11 +177,11 @@ class StreamClient(EnumEnforcer):
         self._max_reconnect_attempts = max_reconnect_attempts
 
         # Arguments of the most recent login(), reused when reconnecting
-        self._websocket_connect_args = None
+        self._websocket_connect_args: dict[str, Any] | None = None
 
         # Maps service names to the keys and fields currently subscribed, so
         # subscriptions can be restored after reconnecting
-        self._subscriptions = {}
+        self._subscriptions: dict[str, dict[str, Any]] = {}
 
         self._response_timeout = response_timeout
         self._handler_error_callback = handler_error_callback
@@ -162,24 +191,24 @@ class StreamClient(EnumEnforcer):
 
         # Set by the login() function
         self._account = None
-        self._stream_correl_id = None
+        self._stream_correl_id: Any = None
         self._stream_customer_id = None
         self._stream_channel = None
         self._stream_function_id = None
-        self._socket = None
+        self._socket: ws_client.ClientConnection | None = None
 
         # Internal fields
         self._request_id = 0
-        self._handlers = defaultdict(list)
+        self._handlers: defaultdict[str, list[_Handler]] = defaultdict(list)
 
         # Requests whose responses we stopped waiting for after a timeout. If
         # their responses arrive late, they are discarded instead of being
         # mistaken for the response to a later request.
-        self._abandoned_request_ids = set()
+        self._abandoned_request_ids: set[int] = set()
 
         # The event loop holds only weak references to tasks, so keep strong
         # references to async handler tasks until they finish.
-        self._handler_tasks = set()
+        self._handler_tasks: set[asyncio.Future[Any]] = set()
 
         # When listening for responses, we sometimes encounter non-response
         # messages. Since this happens outside the context of the handler
@@ -187,7 +216,7 @@ class StreamClient(EnumEnforcer):
         # deliver these messages. This list records the messages that were read
         # from the stream but not handled yet. Messages should be read from this
         # list before they are read from the stream.
-        self._overflow_items = deque()
+        self._overflow_items: deque[Any] = deque()
 
         # Logging-related fields
         self.logger = get_logger()
@@ -195,10 +224,10 @@ class StreamClient(EnumEnforcer):
 
         # Initialize the JSON parser to be the naive parser which directly calls
         # ``json.loads``
-        self.json_decoder = NaiveJsonStreamDecoder()
+        self.json_decoder: StreamJsonDecoder = NaiveJsonStreamDecoder()
         self._lock = asyncio.Lock()
 
-    def set_json_decoder(self, json_decoder):
+    def set_json_decoder(self, json_decoder: StreamJsonDecoder) -> None:
         '''
         Sets a custom JSON decoder.
 
@@ -206,16 +235,16 @@ class StreamClient(EnumEnforcer):
                              incoming JSON strings. See
                              :class:`StreamJsonDecoder` for details.
         '''
-        if not isinstance(json_decoder, schwab.contrib.util.StreamJsonDecoder):
+        if not isinstance(json_decoder, StreamJsonDecoder):
             raise ValueError('Custom JSON parser must be a subclass of ' +
                              'schwab.contrib.util.StreamJsonDecoder')
         self.json_decoder = json_decoder
 
-    def req_num(self):
+    def req_num(self) -> int:
         self.request_number += 1
         return self.request_number
 
-    async def _send(self, obj):
+    async def _send(self, obj: dict[str, Any]) -> None:
         if self._socket is None:
             raise ValueError(
                 'Socket not open. Did you forget to call login()?')
@@ -225,7 +254,7 @@ class StreamClient(EnumEnforcer):
 
         await self._socket.send(json.dumps(obj))
 
-    async def _receive(self):
+    async def _receive(self) -> Any:
         if self._socket is None:
             raise ValueError(
                 'Socket not open. Did you forget to call login()?')
@@ -237,7 +266,7 @@ class StreamClient(EnumEnforcer):
                 'Receive %s: Returning message from overflow: %s',
                 self.req_num(), LazyLog(lambda: json.dumps(ret, indent=4)))
         else:
-            raw = await self._socket.recv()
+            raw: Any = await self._socket.recv()
             try:
                 ret = self.json_decoder.decode_json_string(raw)
             except json.decoder.JSONDecodeError as e:
@@ -252,7 +281,9 @@ class StreamClient(EnumEnforcer):
 
         return ret
 
-    async def _init_from_preferences(self, prefs, websocket_connect_args):
+    async def _init_from_preferences(
+            self, prefs: dict[str, Any],
+            websocket_connect_args: Mapping[str, Any]) -> None:
         # Record streamer subscription keys
         stream_info = prefs['streamerInfo'][0]
 
@@ -282,7 +313,9 @@ class StreamClient(EnumEnforcer):
                 wss_url, **websocket_connect_args)
 
 
-    def _make_request(self, *, service, command, parameters):
+    def _make_request(
+            self, *, service: str, command: str,
+            parameters: dict[str, Any]) -> tuple[dict[str, Any], int]:
         request_id = self._request_id
         self._request_id += 1
 
@@ -297,8 +330,9 @@ class StreamClient(EnumEnforcer):
 
         return request, request_id
 
-    async def _send_and_await_response(self, request, request_id, service,
-                                       command):
+    async def _send_and_await_response(self, request: dict[str, Any],
+                                       request_id: int, service: str,
+                                       command: str) -> None:
         '''
         Sends a request and waits for its response. Must be called with
         ``self._lock`` held.
@@ -316,19 +350,22 @@ class StreamClient(EnumEnforcer):
                         service, command, request_id,
                         self._response_timeout)) from None
 
-    async def _await_response(self, request_id, service, command):
-        deferred_messages = []
+    async def _await_response(self, request_id: int, service: str,
+                              command: str) -> None:
+        deferred_messages: list[Any] = []
 
         # Context handler to ensure we always append the deferred messages,
         # regardless of how we exit the await loop below
         class WriteDeferredMessages:
-            def __init__(self, this_client):
+            def __init__(self, this_client: StreamClient) -> None:
                 self.this_client = this_client
 
-            def __enter__(self):
+            def __enter__(self) -> WriteDeferredMessages:
                 return self
 
-            def __exit__(self, exc_type, exc_val, exc_tb):
+            def __exit__(self, exc_type: type[BaseException] | None,
+                         exc_val: BaseException | None,
+                         exc_tb: TracebackType | None) -> None:
                 self.this_client._overflow_items.extendleft(deferred_messages)
 
         with WriteDeferredMessages(self):
@@ -377,8 +414,12 @@ class StreamClient(EnumEnforcer):
 
                 break
 
-    async def _service_op(self, symbols, service, command, field_type=None,
-                          *, fields=None):
+    async def _service_op(self, symbols: Iterable[str], service: str,
+                          command: str,
+                          field_type: type[_BaseFieldEnum] | None = None,
+                          *,
+                          fields: Iterable[_BaseFieldEnum] | None = None
+                          ) -> None:
         parameters = {
             'keys': ','.join(symbols)
         }
@@ -400,10 +441,12 @@ class StreamClient(EnumEnforcer):
 
         self._record_subscription(service, command, parameters)
 
-    def _record_subscription(self, service, command, parameters):
+    def _record_subscription(self, service: str, command: str,
+                             parameters: dict[str, Any]) -> None:
         keys = [k for k in parameters['keys'].split(',') if k]
         fields = parameters.get('fields')
 
+        sub: dict[str, Any] | None
         if command == 'SUBS':
             self._subscriptions[service] = {'keys': keys, 'fields': fields}
         elif command == 'ADD':
@@ -422,7 +465,7 @@ class StreamClient(EnumEnforcer):
     ##########################################################################
     # RECONNECTING
 
-    async def reconnect(self):
+    async def reconnect(self) -> None:
         '''
         Replaces the connection with a new one: closes the current connection,
         if any, logs in again using the arguments of the last :meth:`login`,
@@ -460,7 +503,7 @@ class StreamClient(EnumEnforcer):
         self.logger.info('Reconnected and restored %s subscription(s)',
                          len(subscriptions))
 
-    async def _reconnect_with_backoff(self, cause):
+    async def _reconnect_with_backoff(self, cause: BaseException) -> None:
         attempt = 0
         while True:
             attempt += 1
@@ -480,7 +523,7 @@ class StreamClient(EnumEnforcer):
                     raise
                 cause = e
 
-    async def handle_message(self):
+    async def handle_message(self) -> None:
         try:
             async with self._lock:
                 msg = await self._receive()
@@ -511,7 +554,8 @@ class StreamClient(EnumEnforcer):
                 for handler in self._handlers.get(d.get('service'), ()):
                     self._dispatch(handler, d, label=False)
 
-    def _dispatch(self, handler, msg, *, label):
+    def _dispatch(self, handler: _Handler, msg: dict[str, Any], *,
+                  label: bool) -> None:
         '''
         Calls a single handler. Exceptions from both sync and async handlers
         are reported through :meth:`_report_handler_error` and never prevent
@@ -535,7 +579,8 @@ class StreamClient(EnumEnforcer):
                     self._report_handler_error(task.exception(), msg)
             task.add_done_callback(on_done)
 
-    def _report_handler_error(self, exception, msg):
+    def _report_handler_error(self, exception: BaseException,
+                              msg: dict[str, Any]) -> None:
         self.logger.error('Stream message handler raised an exception',
                           exc_info=exception)
         if self._handler_error_callback is not None:
@@ -547,7 +592,9 @@ class StreamClient(EnumEnforcer):
     ##########################################################################
     # LOGIN
 
-    async def login(self, websocket_connect_args=None):
+    async def login(
+            self,
+            websocket_connect_args: Mapping[str, Any] | None = None) -> None:
         '''
         Performs initial stream setup:
          * Fetches streaming information from the HTTP client's
@@ -571,7 +618,7 @@ class StreamClient(EnumEnforcer):
         self._subscriptions = {}
 
         # Fetch required data and initialize the client
-        r = self._client.get_user_preferences()
+        r: Any = self._client.get_user_preferences()
 
         # We don't actually know whether the client is synchronous or
         # asynchronous, so work around by awaiting the response if necessary
@@ -600,7 +647,7 @@ class StreamClient(EnumEnforcer):
     ##########################################################################
     # LOGOUT
 
-    async def logout(self):
+    async def logout(self) -> None:
         '''
         Performs a logout operation on the stream and closes the connection.
         After this method is called, no further stream operations are possible.
@@ -620,7 +667,7 @@ class StreamClient(EnumEnforcer):
     ##########################################################################
     # CLOSE
 
-    async def close(self):
+    async def close(self) -> None:
         '''
         Closes the underlying websocket connection without logging out. Safe to
         call more than once, and safe to call on a client that never logged
@@ -636,7 +683,7 @@ class StreamClient(EnumEnforcer):
         self._subscriptions = {}
         await self._close_socket()
 
-    async def _close_socket(self):
+    async def _close_socket(self) -> None:
         socket, self._socket = self._socket, None
         self._overflow_items.clear()
         self._abandoned_request_ids.clear()
@@ -648,10 +695,12 @@ class StreamClient(EnumEnforcer):
                 # it's being closed
                 self.logger.debug('Error closing stream connection: %s', e)
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> StreamClient:
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, exc_type: type[BaseException] | None,
+                        exc_val: BaseException | None,
+                        exc_tb: TracebackType | None) -> None:
         await self.close()
 
     ##########################################################################
@@ -677,7 +726,7 @@ class StreamClient(EnumEnforcer):
         #: or plain text in case of ERROR.
         MESSAGE_DATA = 3
 
-    async def account_activity_sub(self):
+    async def account_activity_sub(self) -> None:
         '''
         Subscribe to account activity for the account id associated with this
         streaming client. See :class:`AccountActivityFields` for more info.
@@ -686,14 +735,14 @@ class StreamClient(EnumEnforcer):
             [self._stream_correl_id], 'ACCT_ACTIVITY', 'SUBS',
             self.AccountActivityFields)
 
-    async def account_activity_unsubs(self):
+    async def account_activity_unsubs(self) -> None:
         '''
         Un-Subscribe to account activity for the account id associated with this
         streaming client. See :class:`AccountActivityFields` for more info.
         '''
         await self._service_op([self._stream_correl_id], 'ACCT_ACTIVITY', 'UNSUBS')
 
-    def add_account_activity_handler(self, handler):
+    def add_account_activity_handler(self, handler: Handler) -> None:
         '''
         Adds a handler to the account activity subscription. See
         :ref:`registering_handlers` for details.
@@ -738,7 +787,7 @@ class StreamClient(EnumEnforcer):
         #: Chart day
         CHART_DAY = 8
 
-    async def chart_equity_subs(self, symbols):
+    async def chart_equity_subs(self, symbols: Iterable[str]) -> None:
         '''
         Subscribe to equity charts. Behavior is undefined if called multiple
         times.
@@ -748,7 +797,7 @@ class StreamClient(EnumEnforcer):
             symbols, 'CHART_EQUITY', 'SUBS', self.ChartEquityFields,
             fields=self.ChartEquityFields.all_fields())
 
-    async def chart_equity_unsubs(self, symbols):
+    async def chart_equity_unsubs(self, symbols: Iterable[str]) -> None:
         '''
         Un-Subscribe to equity charts. Behavior is undefined if called multiple
         times.
@@ -756,7 +805,7 @@ class StreamClient(EnumEnforcer):
         :param symbols: Equity symbols to subscribe to.'''
         await self._service_op(symbols, 'CHART_EQUITY', 'UNSUBS')
 
-    async def chart_equity_add(self, symbols):
+    async def chart_equity_add(self, symbols: Iterable[str]) -> None:
         '''
         Add a symbol to the equity charts subscription. Behavior is undefined
         if called before :meth:`chart_equity_subs`.
@@ -767,7 +816,7 @@ class StreamClient(EnumEnforcer):
             symbols, 'CHART_EQUITY', 'ADD', self.ChartEquityFields,
             fields=self.ChartEquityFields.all_fields())
 
-    def add_chart_equity_handler(self, handler):
+    def add_chart_equity_handler(self, handler: Handler) -> None:
         '''
         Adds a handler to the equity chart subscription. See
         :ref:`registering_handlers` for details.
@@ -806,7 +855,7 @@ class StreamClient(EnumEnforcer):
         #: Total volume for the minute
         VOLUME = 6
 
-    async def chart_futures_subs(self, symbols):
+    async def chart_futures_subs(self, symbols: Iterable[str]) -> None:
         '''
         Subscribe to futures charts. Behavior is undefined if called multiple
         times.
@@ -817,7 +866,7 @@ class StreamClient(EnumEnforcer):
             symbols, 'CHART_FUTURES', 'SUBS', self.ChartFuturesFields,
             fields=self.ChartFuturesFields.all_fields())
 
-    async def chart_futures_unsubs(self, symbols):
+    async def chart_futures_unsubs(self, symbols: Iterable[str]) -> None:
         '''
         Un-Subscribe to futures charts. Behavior is undefined if called multiple
         times.
@@ -826,7 +875,7 @@ class StreamClient(EnumEnforcer):
         '''
         await self._service_op(symbols, 'CHART_FUTURES', 'UNSUBS')
 
-    async def chart_futures_add(self, symbols):
+    async def chart_futures_add(self, symbols: Iterable[str]) -> None:
         '''
         Add a symbol to the futures chart subscription. Behavior is undefined
         if called before :meth:`chart_futures_subs`.
@@ -837,7 +886,7 @@ class StreamClient(EnumEnforcer):
             symbols, 'CHART_FUTURES', 'ADD', self.ChartFuturesFields,
             fields=self.ChartFuturesFields.all_fields())
 
-    def add_chart_futures_handler(self, handler):
+    def add_chart_futures_handler(self, handler: Handler) -> None:
         '''
         Adds a handler to the futures chart subscription. See
         :ref:`registering_handlers` for details.
@@ -1009,7 +1058,10 @@ class StreamClient(EnumEnforcer):
         #: Post market net change percent
         POST_MARKET_NET_CHANGE_PERCENT = 51
 
-    async def level_one_equity_subs(self, symbols, *, fields=None):
+    async def level_one_equity_subs(
+            self, symbols: Iterable[str], *,
+            fields: Iterable[StreamClient.LevelOneEquityFields] | None = None
+    ) -> None:
         '''
         Subscribe to level one equity quote data.
 
@@ -1018,13 +1070,16 @@ class StreamClient(EnumEnforcer):
                        the fields to return in streaming entries. If unset, all
                        fields will be requested.
         '''
-        if fields and self.LevelOneEquityFields.SYMBOL not in fields:
-            fields.append(self.LevelOneEquityFields.SYMBOL)
+        if fields:
+            # Copy, so the caller's list isn't modified
+            fields = list(fields)
+            if self.LevelOneEquityFields.SYMBOL not in fields:
+                fields.append(self.LevelOneEquityFields.SYMBOL)
         await self._service_op(
             symbols, 'LEVELONE_EQUITIES', 'SUBS', self.LevelOneEquityFields,
             fields=fields)
 
-    async def level_one_equity_unsubs(self, symbols):
+    async def level_one_equity_unsubs(self, symbols: Iterable[str]) -> None:
         '''
         Un-Subscribe to level one equity quote data.
 
@@ -1033,7 +1088,10 @@ class StreamClient(EnumEnforcer):
 
         await self._service_op(symbols, 'LEVELONE_EQUITIES', 'UNSUBS')
 
-    async def level_one_equity_add(self, symbols, *, fields=None):
+    async def level_one_equity_add(
+            self, symbols: Iterable[str], *,
+            fields: Iterable[StreamClient.LevelOneEquityFields] | None = None
+    ) -> None:
         '''
         Add symbols to the list to receive quotes for.
 
@@ -1042,13 +1100,16 @@ class StreamClient(EnumEnforcer):
                        the fields to return in streaming entries. If unset, all
                        fields will be requested.
         '''
-        if fields and self.LevelOneEquityFields.SYMBOL not in fields:
-            fields.append(self.LevelOneEquityFields.SYMBOL)
+        if fields:
+            # Copy, so the caller's list isn't modified
+            fields = list(fields)
+            if self.LevelOneEquityFields.SYMBOL not in fields:
+                fields.append(self.LevelOneEquityFields.SYMBOL)
         await self._service_op(
             symbols, 'LEVELONE_EQUITIES', 'ADD',
             self.LevelOneEquityFields, fields=fields)
 
-    def add_level_one_equity_handler(self, handler):
+    def add_level_one_equity_handler(self, handler: Handler) -> None:
         '''
         Register a function to handle level one equity quotes as they are sent.
         See :ref:`registering_handlers` for details.
@@ -1236,7 +1297,10 @@ class StreamClient(EnumEnforcer):
         #: Exercise type
         EXERCISE_TYPE = 55
 
-    async def level_one_option_subs(self, symbols, *, fields=None):
+    async def level_one_option_subs(
+            self, symbols: Iterable[str], *,
+            fields: Iterable[StreamClient.LevelOneOptionFields] | None = None
+    ) -> None:
         '''
         Subscribe to level one option quote data.
 
@@ -1245,13 +1309,16 @@ class StreamClient(EnumEnforcer):
                        the fields to return in streaming entries. If unset, all
                        fields will be requested.
         '''
-        if fields and self.LevelOneOptionFields.SYMBOL not in fields:
-            fields.append(self.LevelOneOptionFields.SYMBOL)
+        if fields:
+            # Copy, so the caller's list isn't modified
+            fields = list(fields)
+            if self.LevelOneOptionFields.SYMBOL not in fields:
+                fields.append(self.LevelOneOptionFields.SYMBOL)
         await self._service_op(
             symbols, 'LEVELONE_OPTIONS', 'SUBS', self.LevelOneOptionFields,
             fields=fields)
 
-    async def level_one_option_unsubs(self, symbols):
+    async def level_one_option_unsubs(self, symbols: Iterable[str]) -> None:
         '''
         Un-Subscribe to level one option quote data.
 
@@ -1259,7 +1326,10 @@ class StreamClient(EnumEnforcer):
         '''
         await self._service_op(symbols, 'LEVELONE_OPTIONS', 'UNSUBS')
 
-    async def level_one_option_add(self, symbols, *, fields=None):
+    async def level_one_option_add(
+            self, symbols: Iterable[str], *,
+            fields: Iterable[StreamClient.LevelOneOptionFields] | None = None
+    ) -> None:
         '''
         Add symbols to the list to receive quotes for.
 
@@ -1268,13 +1338,16 @@ class StreamClient(EnumEnforcer):
                        the fields to return in streaming entries. If unset, all
                        fields will be requested.
         '''
-        if fields and self.LevelOneOptionFields.SYMBOL not in fields:
-            fields.append(self.LevelOneOptionFields.SYMBOL)
+        if fields:
+            # Copy, so the caller's list isn't modified
+            fields = list(fields)
+            if self.LevelOneOptionFields.SYMBOL not in fields:
+                fields.append(self.LevelOneOptionFields.SYMBOL)
         await self._service_op(
             symbols, 'LEVELONE_OPTIONS', 'ADD',
             self.LevelOneOptionFields, fields=fields)
 
-    def add_level_one_option_handler(self, handler):
+    def add_level_one_option_handler(self, handler: Handler) -> None:
         '''
         Register a function to handle level one options quotes as they are sent.
         See :ref:`registering_handlers` for details.
@@ -1412,7 +1485,10 @@ class StreamClient(EnumEnforcer):
         #: Expiration date of this contract
         SETTLEMENT_DATE = 40
 
-    async def level_one_futures_subs(self, symbols, *, fields=None):
+    async def level_one_futures_subs(
+            self, symbols: Iterable[str], *,
+            fields: Iterable[StreamClient.LevelOneFuturesFields] | None = None
+    ) -> None:
         '''
         Subscribe to level one futures quote data.
 
@@ -1421,13 +1497,16 @@ class StreamClient(EnumEnforcer):
                        the fields to return in streaming entries. If unset, all
                        fields will be requested.
         '''
-        if fields and self.LevelOneFuturesFields.SYMBOL not in fields:
-            fields.append(self.LevelOneFuturesFields.SYMBOL)
+        if fields:
+            # Copy, so the caller's list isn't modified
+            fields = list(fields)
+            if self.LevelOneFuturesFields.SYMBOL not in fields:
+                fields.append(self.LevelOneFuturesFields.SYMBOL)
         await self._service_op(
             symbols, 'LEVELONE_FUTURES', 'SUBS', self.LevelOneFuturesFields,
             fields=fields)
 
-    async def level_one_futures_unsubs(self, symbols):
+    async def level_one_futures_unsubs(self, symbols: Iterable[str]) -> None:
         '''
         Un-Subscribe to level one futures quote data.
 
@@ -1436,7 +1515,10 @@ class StreamClient(EnumEnforcer):
 
         await self._service_op(symbols, 'LEVELONE_FUTURES', 'UNSUBS')
 
-    async def level_one_futures_add(self, symbols, *, fields=None):
+    async def level_one_futures_add(
+            self, symbols: Iterable[str], *,
+            fields: Iterable[StreamClient.LevelOneFuturesFields] | None = None
+    ) -> None:
         '''
         Add symbols to the list to receive quotes for.
 
@@ -1445,13 +1527,16 @@ class StreamClient(EnumEnforcer):
                        the fields to return in streaming entries. If unset, all
                        fields will be requested.
         '''
-        if fields and self.LevelOneFuturesFields.SYMBOL not in fields:
-            fields.append(self.LevelOneFuturesFields.SYMBOL)
+        if fields:
+            # Copy, so the caller's list isn't modified
+            fields = list(fields)
+            if self.LevelOneFuturesFields.SYMBOL not in fields:
+                fields.append(self.LevelOneFuturesFields.SYMBOL)
         await self._service_op(
             symbols, 'LEVELONE_FUTURES', 'ADD',
             self.LevelOneFuturesFields, fields=fields)
 
-    def add_level_one_futures_handler(self, handler):
+    def add_level_one_futures_handler(self, handler: Handler) -> None:
         '''
         Register a function to handle level one futures quotes as they are sent.
         See :ref:`registering_handlers` for details.
@@ -1556,7 +1641,10 @@ class StreamClient(EnumEnforcer):
         #: Mark-to-Market value is calculated daily using current prices to determine profit/loss
         MARK = 29
 
-    async def level_one_forex_subs(self, symbols, *, fields=None):
+    async def level_one_forex_subs(
+            self, symbols: Iterable[str], *,
+            fields: Iterable[StreamClient.LevelOneForexFields] | None = None
+    ) -> None:
         '''
         Subscribe to level one forex quote data.
 
@@ -1565,13 +1653,16 @@ class StreamClient(EnumEnforcer):
                        the fields to return in streaming entries. If unset, all
                        fields will be requested.
         '''
-        if fields and self.LevelOneForexFields.SYMBOL not in fields:
-            fields.append(self.LevelOneForexFields.SYMBOL)
+        if fields:
+            # Copy, so the caller's list isn't modified
+            fields = list(fields)
+            if self.LevelOneForexFields.SYMBOL not in fields:
+                fields.append(self.LevelOneForexFields.SYMBOL)
         await self._service_op(
             symbols, 'LEVELONE_FOREX', 'SUBS', self.LevelOneForexFields,
             fields=fields)
 
-    async def level_one_forex_unsubs(self, symbols):
+    async def level_one_forex_unsubs(self, symbols: Iterable[str]) -> None:
         '''
         Un-Subscribe to level one forex quote data.
 
@@ -1580,7 +1671,10 @@ class StreamClient(EnumEnforcer):
 
         await self._service_op(symbols, 'LEVELONE_FOREX', 'UNSUBS')
 
-    async def level_one_forex_add(self, symbols, *, fields=None):
+    async def level_one_forex_add(
+            self, symbols: Iterable[str], *,
+            fields: Iterable[StreamClient.LevelOneForexFields] | None = None
+    ) -> None:
         '''
         Add symbols to the list to receive quotes for.
 
@@ -1590,13 +1684,16 @@ class StreamClient(EnumEnforcer):
                        fields will be requested.
 
         '''
-        if fields and self.LevelOneForexFields.SYMBOL not in fields:
-            fields.append(self.LevelOneForexFields.SYMBOL)
+        if fields:
+            # Copy, so the caller's list isn't modified
+            fields = list(fields)
+            if self.LevelOneForexFields.SYMBOL not in fields:
+                fields.append(self.LevelOneForexFields.SYMBOL)
         await self._service_op(
             symbols, 'LEVELONE_FOREX', 'ADD',
             self.LevelOneForexFields, fields=fields)
 
-    def add_level_one_forex_handler(self, handler):
+    def add_level_one_forex_handler(self, handler: Handler) -> None:
         '''
         Register a function to handle level one forex quotes as they are sent.
         See :ref:`registering_handlers` for details.
@@ -1707,7 +1804,10 @@ class StreamClient(EnumEnforcer):
         #: Display name of exchange
         EXCHANGE_NAME = 31
 
-    async def level_one_futures_options_subs(self, symbols, *, fields=None):
+    async def level_one_futures_options_subs(
+            self, symbols: Iterable[str], *,
+            fields: Iterable[StreamClient.LevelOneFuturesOptionsFields]
+            | None = None) -> None:
         '''
         Subscribe to level one futures options quote data.
 
@@ -1716,13 +1816,17 @@ class StreamClient(EnumEnforcer):
                        representing the fields to return in streaming entries.
                        If unset, all fields will be requested.
         '''
-        if fields and self.LevelOneFuturesOptionsFields.SYMBOL not in fields:
-            fields.append(self.LevelOneFuturesOptionsFields.SYMBOL)
+        if fields:
+            # Copy, so the caller's list isn't modified
+            fields = list(fields)
+            if self.LevelOneFuturesOptionsFields.SYMBOL not in fields:
+                fields.append(self.LevelOneFuturesOptionsFields.SYMBOL)
         await self._service_op(
             symbols, 'LEVELONE_FUTURES_OPTIONS', 'SUBS',
             self.LevelOneFuturesOptionsFields, fields=fields)
 
-    async def level_one_futures_options_unsubs(self, symbols):
+    async def level_one_futures_options_unsubs(
+            self, symbols: Iterable[str]) -> None:
         '''
         Un-Subscribe to level one futures options quote data.
 
@@ -1731,7 +1835,10 @@ class StreamClient(EnumEnforcer):
 
         await self._service_op(symbols, 'LEVELONE_FUTURES_OPTIONS', 'UNSUBS')
 
-    async def level_one_futures_options_add(self, symbols, *, fields=None):
+    async def level_one_futures_options_add(
+            self, symbols: Iterable[str], *,
+            fields: Iterable[StreamClient.LevelOneFuturesOptionsFields]
+            | None = None) -> None:
         '''
         Add symbols to the list to receive quotes for.
 
@@ -1740,13 +1847,16 @@ class StreamClient(EnumEnforcer):
                        representing the fields to return in streaming entries.
                        If unset, all fields will be requested.
         '''
-        if fields and self.LevelOneFuturesOptionsFields.SYMBOL not in fields:
-            fields.append(self.LevelOneFuturesOptionsFields.SYMBOL)
+        if fields:
+            # Copy, so the caller's list isn't modified
+            fields = list(fields)
+            if self.LevelOneFuturesOptionsFields.SYMBOL not in fields:
+                fields.append(self.LevelOneFuturesOptionsFields.SYMBOL)
         await self._service_op(
             symbols, 'LEVELONE_FUTURES_OPTIONS', 'ADD',
             self.LevelOneFuturesOptionsFields, fields=fields)
 
-    def add_level_one_futures_options_handler(self, handler):
+    def add_level_one_futures_options_handler(self, handler: Handler) -> None:
         '''
         Register a function to handle level one futures options quotes as they
         are sent. See :ref:`registering_handlers` for details.
@@ -1786,7 +1896,7 @@ class StreamClient(EnumEnforcer):
         SEQUENCE = 2
 
     class _BookHandler(_Handler):
-        def label_message(self, msg):
+        def label_message(self, msg: dict[str, Any]) -> dict[str, Any]:
             # Relabel top-level fields
             new_msg = super().label_message(msg)
 
@@ -1819,7 +1929,7 @@ class StreamClient(EnumEnforcer):
     ##########################################################################
     # NYSE_BOOK
 
-    async def nyse_book_subs(self, symbols):
+    async def nyse_book_subs(self, symbols: Iterable[str]) -> None:
         '''
         Subscribe to the NYSE level two order book.
 
@@ -1829,7 +1939,7 @@ class StreamClient(EnumEnforcer):
             symbols, 'NYSE_BOOK', 'SUBS',
             self.BookFields, fields=self.BookFields.all_fields())
 
-    async def nyse_book_unsubs(self, symbols):
+    async def nyse_book_unsubs(self, symbols: Iterable[str]) -> None:
         '''
         Un-Subscribe to the NYSE level two order book.
 
@@ -1837,7 +1947,7 @@ class StreamClient(EnumEnforcer):
         '''
         await self._service_op(symbols, 'NYSE_BOOK', 'UNSUBS')
 
-    async def nyse_book_add(self, symbols):
+    async def nyse_book_add(self, symbols: Iterable[str]) -> None:
         '''
         Add to the NYSE level two order book.
 
@@ -1845,7 +1955,7 @@ class StreamClient(EnumEnforcer):
         '''
         await self._service_op(symbols, 'NYSE_BOOK', 'ADD', self.BookFields)
 
-    def add_nyse_book_handler(self, handler):
+    def add_nyse_book_handler(self, handler: Handler) -> None:
         '''
         Register a function to handle level two NYSE book data as it is updated
         See :ref:`registering_handlers` for details.
@@ -1856,7 +1966,7 @@ class StreamClient(EnumEnforcer):
     ##########################################################################
     # NASDAQ_BOOK
 
-    async def nasdaq_book_subs(self, symbols):
+    async def nasdaq_book_subs(self, symbols: Iterable[str]) -> None:
         '''
         Subscribe to the NASDAQ level two order book.
 
@@ -1866,7 +1976,7 @@ class StreamClient(EnumEnforcer):
                                self.BookFields,
                                fields=self.BookFields.all_fields())
 
-    async def nasdaq_book_unsubs(self, symbols):
+    async def nasdaq_book_unsubs(self, symbols: Iterable[str]) -> None:
         '''
         Un-Subscribe to the NASDAQ level two order book.
 
@@ -1874,7 +1984,7 @@ class StreamClient(EnumEnforcer):
         '''
         await self._service_op(symbols, 'NASDAQ_BOOK', 'UNSUBS')
 
-    async def nasdaq_book_add(self, symbols):
+    async def nasdaq_book_add(self, symbols: Iterable[str]) -> None:
         '''
         Add to the NASDAQ level two order book.
 
@@ -1882,7 +1992,7 @@ class StreamClient(EnumEnforcer):
         '''
         await self._service_op(symbols, 'NASDAQ_BOOK', 'ADD', self.BookFields)
 
-    def add_nasdaq_book_handler(self, handler):
+    def add_nasdaq_book_handler(self, handler: Handler) -> None:
         '''
         Register a function to handle level two NASDAQ book data as it is
         updated See :ref:`registering_handlers` for details.
@@ -1893,7 +2003,7 @@ class StreamClient(EnumEnforcer):
     ##########################################################################
     # OPTIONS_BOOK
 
-    async def options_book_subs(self, symbols):
+    async def options_book_subs(self, symbols: Iterable[str]) -> None:
         '''
         Subscribe to the level two order book for options.
 
@@ -1903,7 +2013,7 @@ class StreamClient(EnumEnforcer):
                                self.BookFields,
                                fields=self.BookFields.all_fields())
 
-    async def options_book_unsubs(self, symbols):
+    async def options_book_unsubs(self, symbols: Iterable[str]) -> None:
         '''
         Un-Subscribe to the level two order book for options.
 
@@ -1911,7 +2021,7 @@ class StreamClient(EnumEnforcer):
         '''
         await self._service_op(symbols, 'OPTIONS_BOOK', 'UNSUBS')
 
-    async def options_book_add(self, symbols):
+    async def options_book_add(self, symbols: Iterable[str]) -> None:
         '''
         Add to the level two order book for options.
 
@@ -1919,7 +2029,7 @@ class StreamClient(EnumEnforcer):
         '''
         await self._service_op(symbols, 'OPTIONS_BOOK', 'ADD', self.BookFields)
 
-    def add_options_book_handler(self, handler):
+    def add_options_book_handler(self, handler: Handler) -> None:
         '''
         Register a function to handle level two options book data as it is
         updated See :ref:`registering_handlers` for details.
@@ -1946,7 +2056,7 @@ class StreamClient(EnumEnforcer):
         #: Array of fields
         ITEMS = 4
 
-    async def screener_equity_subs(self, symbols):
+    async def screener_equity_subs(self, symbols: Iterable[str]) -> None:
         '''
         Subscribe to Screener Equity.
 
@@ -1954,7 +2064,7 @@ class StreamClient(EnumEnforcer):
         '''
         await self._service_op(symbols, 'SCREENER_EQUITY', 'SUBS', self.ScreenerFields)
 
-    async def screener_equity_unsubs(self, symbols):
+    async def screener_equity_unsubs(self, symbols: Iterable[str]) -> None:
         '''
         Un-Subscribe to Screener Equity.
 
@@ -1962,7 +2072,7 @@ class StreamClient(EnumEnforcer):
         '''
         await self._service_op(symbols, 'SCREENER_EQUITY', 'UNSUBS')
 
-    async def screener_equity_add(self, symbols):
+    async def screener_equity_add(self, symbols: Iterable[str]) -> None:
         '''
         Add symbols to the Screener Equity list.
 
@@ -1970,7 +2080,7 @@ class StreamClient(EnumEnforcer):
         '''
         await self._service_op(symbols, 'SCREENER_EQUITY', 'ADD', self.ScreenerFields)
 
-    def add_screener_equity_handler(self, handler):
+    def add_screener_equity_handler(self, handler: Handler) -> None:
         '''
         Register a function to handle Screener Equity data as it is
         updated See :ref:`registering_handlers` for details.
@@ -1978,7 +2088,7 @@ class StreamClient(EnumEnforcer):
         self._handlers['SCREENER_EQUITY'].append(
             _Handler(handler, self.ScreenerFields))
 
-    async def screener_option_subs(self, symbols):
+    async def screener_option_subs(self, symbols: Iterable[str]) -> None:
         '''
         Subscribe to Screener Option.
 
@@ -1986,7 +2096,7 @@ class StreamClient(EnumEnforcer):
         '''
         await self._service_op(symbols, 'SCREENER_OPTION', 'SUBS', self.ScreenerFields)
 
-    async def screener_option_unsubs(self, symbols):
+    async def screener_option_unsubs(self, symbols: Iterable[str]) -> None:
         '''
         Un-Subscribe to Screener Option.
 
@@ -1994,7 +2104,7 @@ class StreamClient(EnumEnforcer):
         '''
         await self._service_op(symbols, 'SCREENER_OPTION', 'UNSUBS')
 
-    async def screener_option_add(self, symbols):
+    async def screener_option_add(self, symbols: Iterable[str]) -> None:
         '''
         Add symbols to the Screener Option list.
 
@@ -2002,7 +2112,7 @@ class StreamClient(EnumEnforcer):
         '''
         await self._service_op(symbols, 'SCREENER_OPTION', 'ADD', self.ScreenerFields)
 
-    def add_screener_option_handler(self, handler):
+    def add_screener_option_handler(self, handler: Handler) -> None:
         '''
         Register a function to handle Screener Option data as it is
         updated See :ref:`registering_handlers` for details.

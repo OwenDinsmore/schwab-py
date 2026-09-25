@@ -40,6 +40,11 @@ These fix real bugs but may be visible to existing code:
 Fixes
 -----
 
+* Level one stream subscriptions no longer append the symbol field to the
+  caller's ``fields`` list, and accept tuples and other iterables, which used to
+  raise.
+* ``StreamClient.set_json_decoder`` no longer raises ``AttributeError`` unless
+  ``schwab.contrib.util`` happened to have been imported.
 * Installing schwab-py no longer installs a stray top-level ``tests`` package.
 * Float prices already at the target precision, like ``8.2``, are no longer
   lowered by one tick. This affected about 5% of prices (#239).
@@ -64,6 +69,10 @@ Fixes
 New features
 ------------
 
+* Type hints throughout, with a ``py.typed`` marker (#126). Client creation
+  functions return ``Client`` or ``AsyncClient`` depending on ``asyncio``, and
+  ``AsyncClient``'s methods are typed as coroutines, so type checkers and
+  editors catch a missing or extra ``await``.
 * ``StreamClient.reconnect()`` logs in again and restores all subscriptions
   after a dropped connection, and ``auto_reconnect=True`` makes
   ``handle_message()`` do so automatically, with exponential backoff.

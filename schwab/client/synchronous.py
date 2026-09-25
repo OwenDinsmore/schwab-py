@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import Any
+
 from .base import BaseClient
 from ..debug import register_redactions_from_response
 from authlib.integrations.base_client import OAuthError
@@ -7,7 +11,7 @@ import time
 
 
 class Client(BaseClient):
-    def revoke(self):
+    def revoke(self) -> httpx.Response:
         '''Revoke this client's refresh token server-side via Schwab's OAuth
         revocation endpoint (RFC 7009). Revoking the refresh token invalidates
         any access tokens issued from it, killing the credential everywhere
@@ -38,7 +42,7 @@ class Client(BaseClient):
 
         return resp
 
-    def get_account_hash(self, account_number):
+    def get_account_hash(self, account_number: str | int) -> str:
         '''Returns the account hash for an account number. Hashes are fetched
         with :meth:`get_account_numbers` the first time they are needed and
         cached; an unknown account number causes one refetch, in case the
@@ -54,14 +58,16 @@ class Client(BaseClient):
             self._cache_account_hashes(self.get_account_numbers())
         return self._cached_account_hash(account_number)
 
-    def _resolve_account_path(self, path):
+    def _resolve_account_path(self, path: str) -> str:
         account_number = self._account_number_in_path(path)
         if account_number is None:
             return path
         return self._replace_account_number(
                 path, self.get_account_hash(account_number))
 
-    def _request(self, method, path, *, params=None, json_data=None):
+    def _request(self, method: str, path: str, *,
+                 params: dict[str, Any] | None = None,
+                 json_data: Any = None) -> httpx.Response:
         path = self._resolve_account_path(path)
         dest = self.base_url + path
 
@@ -105,14 +111,15 @@ class Client(BaseClient):
         register_redactions_from_response(resp)
         return resp
 
-    def _get_request(self, path, params):
+    def _get_request(self, path: str,
+                           params: dict[str, Any]) -> httpx.Response:
         return self._request('GET', path, params=params)
 
-    def _post_request(self, path, data):
+    def _post_request(self, path: str, data: Any) -> httpx.Response:
         return self._request('POST', path, json_data=data)
 
-    def _put_request(self, path, data):
+    def _put_request(self, path: str, data: Any) -> httpx.Response:
         return self._request('PUT', path, json_data=data)
 
-    def _delete_request(self, path):
+    def _delete_request(self, path: str) -> httpx.Response:
         return self._request('DELETE', path)

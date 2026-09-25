@@ -41,6 +41,7 @@ dev = [
     "callee",
     "colorama",
     "coverage",
+    "mypy",
     "pytest",
     "pytz",
     "sphinx_rtd_theme",
@@ -58,8 +59,16 @@ script-files = [
     "bin/schwab-generate-token.py",
 ]
 
+[tool.setuptools.package-data]
+schwab = ["py.typed", "client/*.pyi"]
+
 [tool.setuptools.dynamic]
 version = {attr = "schwab.version.version"}
 
 [tool.setuptools.packages.find]
 include = ["schwab*"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["schwab", "tests/typing"]
+ignore_missing_imports = true

@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import Any
+
 from .base import BaseClient
 from ..debug import register_redactions_from_response
 from authlib.integrations.base_client import OAuthError
@@ -8,10 +12,10 @@ import asyncio
 
 class AsyncClient(BaseClient):
 
-    async def close_async_session(self):
+    async def close_async_session(self) -> None:
         await self.session.aclose()
 
-    async def revoke(self):
+    async def revoke(self) -> httpx.Response:
         '''Revoke this client's refresh token server-side via Schwab's OAuth
         revocation endpoint (RFC 7009). Revoking the refresh token invalidates
         any access tokens issued from it, killing the credential everywhere
@@ -43,7 +47,7 @@ class AsyncClient(BaseClient):
 
         return resp
 
-    async def get_account_hash(self, account_number):
+    async def get_account_hash(self, account_number: str | int) -> str:
         '''Returns the account hash for an account number. See
         :meth:`Client.get_account_hash <schwab.client.Client.get_account_hash>`.
         '''
@@ -51,14 +55,16 @@ class AsyncClient(BaseClient):
             self._cache_account_hashes(await self.get_account_numbers())
         return self._cached_account_hash(account_number)
 
-    async def _resolve_account_path(self, path):
+    async def _resolve_account_path(self, path: str) -> str:
         account_number = self._account_number_in_path(path)
         if account_number is None:
             return path
         return self._replace_account_number(
                 path, await self.get_account_hash(account_number))
 
-    async def _request(self, method, path, *, params=None, json_data=None):
+    async def _request(self, method: str, path: str, *,
+                 params: dict[str, Any] | None = None,
+                 json_data: Any = None) -> httpx.Response:
         path = await self._resolve_account_path(path)
         dest = self.base_url + path
 
@@ -102,14 +108,15 @@ class AsyncClient(BaseClient):
         register_redactions_from_response(resp)
         return resp
 
-    async def _get_request(self, path, params):
+    async def _get_request(self, path: str,
+                           params: dict[str, Any]) -> httpx.Response:
         return await self._request('GET', path, params=params)
 
-    async def _post_request(self, path, data):
+    async def _post_request(self, path: str, data: Any) -> httpx.Response:
         return await self._request('POST', path, json_data=data)
 
-    async def _put_request(self, path, data):
+    async def _put_request(self, path: str, data: Any) -> httpx.Response:
         return await self._request('PUT', path, json_data=data)
 
-    async def _delete_request(self, path):
+    async def _delete_request(self, path: str) -> httpx.Response:
         return await self._request('DELETE', path)

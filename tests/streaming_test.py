@@ -1,4 +1,6 @@
 import asyncio
+import subprocess
+import sys
 import websockets.exceptions
 import schwab
 import urllib.parse
@@ -5834,6 +5836,52 @@ class StreamClientTest(IsolatedAsyncioTestCase):
 
         ws_connect.assert_awaited_once_with(
                 ANY, additional_headers={'k': 'v'})
+
+    ###########################################################################
+    # Regressions found while adding type hints
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_level_one_fields_not_modified(self, ws_connect):
+        socket = await self.login_and_get_socket(ws_connect)
+        socket.recv.side_effect = [
+            json.dumps(self.success_response(
+                1, 'LEVELONE_EQUITIES', 'SUBS')),
+            json.dumps(self.success_response(
+                2, 'LEVELONE_EQUITIES', 'SUBS')),
+        ]
+        fields = [StreamClient.LevelOneEquityFields.BID_PRICE]
+
+        await self.client.level_one_equity_subs(['GOOG'], fields=fields)
+        # Tuples used to fail, since the symbol field was appended to them
+        await self.client.level_one_equity_subs(
+                ['GOOG'], fields=(StreamClient.LevelOneEquityFields.BID_PRICE,))
+
+        self.assertEqual([StreamClient.LevelOneEquityFields.BID_PRICE], fields)
+        request = json.loads(socket.send.call_args_list[1][0][0])
+        self.assertEqual(
+                '0,1', request['requests'][0]['parameters']['fields'])
+
+    @no_duplicates
+    def test_set_json_decoder_without_importing_contrib(self):
+        # set_json_decoder used to refer to schwab.contrib.util, which isn't
+        # imported by 'import schwab'
+        code = '''
+import schwab.streaming
+class Decoder(schwab.streaming.StreamJsonDecoder):
+    def decode_json_string(self, raw):
+        return raw
+client = schwab.streaming.StreamClient(None)
+client.set_json_decoder(Decoder())
+try:
+    client.set_json_decoder(object())
+    raise SystemExit('accepted a non-decoder')
+except ValueError:
+    pass
+'''
+        result = subprocess.run([sys.executable, '-c', code],
+                                capture_output=True, text=True)
+        self.assertEqual(0, result.returncode, result.stderr)
 
     ###########################################################################
     # Reconnecting

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from authlib.integrations.httpx_client import AsyncOAuth2Client, OAuth2Client
 
 import collections
@@ -17,6 +19,9 @@ import urllib3
 import warnings
 import webbrowser
 
+from collections.abc import Awaitable, Callable, Iterator
+from typing import Any, Literal, overload
+
 from schwab.client import AsyncClient, Client
 from schwab.debug import register_redactions
 from schwab._token_sync import TokenFileSync
@@ -27,7 +32,7 @@ TOKEN_ENDPOINT = DEFAULT_BASE_URL + '/v1/oauth/token'
 REVOKE_URL = DEFAULT_BASE_URL + '/v1/oauth/revoke'
 
 
-def _clean_credential(name, value):
+def _clean_credential(name: str, value: Any) -> Any:
     '''
     Strips surrounding whitespace, which is easy to pick up when copying keys
     from the developer portal and which some Schwab endpoints reject with
@@ -40,7 +45,7 @@ def _clean_credential(name, value):
     return value
 
 
-def _resolve_base_url(base_url):
+def _resolve_base_url(base_url: str | None) -> str:
     return DEFAULT_BASE_URL if base_url is None else base_url.rstrip('/')
 
 
@@ -49,11 +54,11 @@ class TokenRevokedError(Exception):
     pass
 
 
-def get_logger():
+def get_logger() -> logging.Logger:
     return logging.getLogger(__name__)
 
 
-def __replace_file(src, dst, attempts=50):
+def __replace_file(src: str, dst: str, attempts: int = 50) -> None:
     # On Windows, replacing a file fails while another process has it open,
     # which can happen when several processes share a token file. Readers only
     # hold it open briefly, so retry for a short while.
@@ -67,7 +72,7 @@ def __replace_file(src, dst, attempts=50):
             time.sleep(0.02)  # pragma: no cover
 
 
-def _write_token_file(token_path, token):
+def _write_token_file(token_path: str, token: Any) -> None:
     '''
     Writes the token atomically and readable only by its owner. The token is
     written to a temporary file in the same directory, which is then moved over
@@ -94,19 +99,19 @@ def _write_token_file(token_path, token):
         raise
 
 
-def __make_update_token_func(token_path):
-    def update_token(t, *args, **kwargs):
+def __make_update_token_func(token_path: str) -> Callable[..., None]:
+    def update_token(t: Any, *args: Any, **kwargs: Any) -> None:
         get_logger().info('Updating token to file %s', token_path)
         _write_token_file(token_path, t)
     return update_token
 
 
-def __make_token_file_sync(token_path):
+def __make_token_file_sync(token_path: str) -> TokenFileSync:
     return TokenFileSync(token_path, __make_update_token_func(token_path))
 
 
-def __token_loader(token_path):
-    def load_token():
+def __token_loader(token_path: str) -> Callable[[], Any]:
+    def load_token() -> Any:
         get_logger().info('Loading token from file %s', token_path)
 
         with open(token_path, 'rb') as f:
@@ -119,8 +124,9 @@ class TokenMetadata:
     Provides the functionality required to maintain and update our view of the
     token's metadata.
     '''
-    def __init__(self, token, creation_timestamp, unwrapped_token_write_func,
-                 revoked=False):
+    def __init__(self, token: Any, creation_timestamp: int,
+                 unwrapped_token_write_func: Callable[..., Any],
+                 revoked: bool = False) -> None:
         '''
         :param token: The token to wrap in metadata
         :param creation_timestamp: Timestamp at which this token was initially
@@ -149,7 +155,9 @@ class TokenMetadata:
         self.revoked = revoked
 
     @classmethod
-    def from_loaded_token(cls, token, unwrapped_token_write_func):
+    def from_loaded_token(
+            cls, token: dict[str, Any],
+            unwrapped_token_write_func: Callable[..., Any]) -> TokenMetadata:
         '''
         Returns a new ``TokenMetadata`` object extracted from the metadata of
         the loaded token object. If the token has a legacy format which contains
@@ -166,17 +174,18 @@ class TokenMetadata:
                 unwrapped_token_write_func,
                 revoked=token.get('revoked', False))
 
-    def token_age(self):
+    def token_age(self) -> int:
         '''Returns the number of second elapsed since this token was initially 
         created.'''
         return int(time.time()) - self.creation_timestamp
 
-    def wrapped_token_write_func(self):
+    def wrapped_token_write_func(self) -> Callable[..., Any]:
         '''
         Returns a version of the unwrapped write function which wraps the token 
         in metadata and updates our view on the most recent token.
         '''
-        def wrapped_token_write_func(token, *args, **kwargs):
+        def wrapped_token_write_func(
+                token: Any, *args: Any, **kwargs: Any) -> Any:
             # If the write function is going to raise an exception, let it do so 
             # here before we update our reference to the current token.
             ret = self.unwrapped_token_write_func(
@@ -188,14 +197,14 @@ class TokenMetadata:
 
         return wrapped_token_write_func
 
-    def wrap_token_in_metadata(self, token):
+    def wrap_token_in_metadata(self, token: Any) -> dict[str, Any]:
         return {
             'creation_timestamp': self.creation_timestamp,
             'token': token,
             'revoked': self.revoked,
         }
 
-    def mark_revoked(self):
+    def mark_revoked(self) -> None:
         '''Mark this token as revoked and persist the updated metadata via the
         unwrapped write function. Subsequent loads will surface the revoked
         state via :class:`TokenRevokedError`.'''
@@ -210,7 +219,8 @@ class TokenMetadata:
 
 # This runs in a separate process and is invisible to coverage
 def __run_client_from_login_flow_server(
-        q, callback_port, callback_path):  # pragma: no cover
+        q: Any, callback_port: int,
+        callback_path: str) -> None:  # pragma: no cover
     '''Helper server for intercepting redirects to the callback URL. See
     client_from_login_flow for details.'''
 
@@ -219,12 +229,12 @@ def __run_client_from_login_flow_server(
     app = flask.Flask(__name__)
 
     @app.route(callback_path)
-    def handle_token():
+    def handle_token() -> str:
         q.put(flask.request.url)
         return 'schwab-py callback received! You may now close this window/tab.'
 
     @app.route('/schwab-py-internal/status')
-    def status():
+    def status() -> str:
         return 'running'
 
     if callback_port == 443:
@@ -252,11 +262,39 @@ class RedirectServerExitedError(Exception):
 # while simultaneously mocking it in testing
 __TIME_TIME = time.time
 
-def client_from_login_flow(api_key, app_secret, callback_url, token_path,
-                           asyncio=False, enforce_enums=False,
-                           token_write_func=None, callback_timeout=300.0,
-                           interactive=True, requested_browser=None,
-                           base_url=None):
+@overload
+def client_from_login_flow(
+        api_key: str, app_secret: str, callback_url: str, token_path: str,
+        asyncio: Literal[False] = ..., enforce_enums: bool = ...,
+        token_write_func: Callable[..., Any] | None = ...,
+        callback_timeout: float | None = ..., interactive: bool = ...,
+        requested_browser: str | None = ...,
+        base_url: str | None = ...) -> Client: ...
+@overload
+def client_from_login_flow(
+        api_key: str, app_secret: str, callback_url: str, token_path: str,
+        asyncio: Literal[True], enforce_enums: bool = ...,
+        token_write_func: Callable[..., Any] | None = ...,
+        callback_timeout: float | None = ..., interactive: bool = ...,
+        requested_browser: str | None = ...,
+        base_url: str | None = ...) -> AsyncClient: ...
+@overload
+def client_from_login_flow(
+        api_key: str, app_secret: str, callback_url: str, token_path: str,
+        asyncio: bool = ..., enforce_enums: bool = ...,
+        token_write_func: Callable[..., Any] | None = ...,
+        callback_timeout: float | None = ..., interactive: bool = ...,
+        requested_browser: str | None = ...,
+        base_url: str | None = ...) -> Client | AsyncClient: ...
+def client_from_login_flow(api_key: str, app_secret: str, callback_url: str,
+                           token_path: str, asyncio: bool = False,
+                           enforce_enums: bool = False,
+                           token_write_func: Callable[..., Any] | None = None,
+                           callback_timeout: float | None = 300.0,
+                           interactive: bool = True,
+                           requested_browser: str | None = None,
+                           base_url: str | None = None
+                           ) -> Client | AsyncClient:
     '''
     Open a web browser to perform an OAuth webapp login flow and creates a 
     client wrapped around the resulting token. The client will be configured to 
@@ -356,7 +394,7 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
 
     # Context manager to kill the server upon completion
     @contextlib.contextmanager
-    def callback_server():
+    def callback_server() -> Iterator[None]:
         server.start()
 
         try:
@@ -482,7 +520,7 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
                     'can set a longer timeout by passing a value of ' +
                     'callback_timeout to client_from_login_flow.')
 
-        token_sync = None
+        token_sync: TokenFileSync | None = None
         if token_write_func is None:
             token_sync = __make_token_file_sync(token_path)
             token_write_func = token_sync.write_token
@@ -497,8 +535,27 @@ def client_from_login_flow(api_key, app_secret, callback_url, token_path,
 # client_from_token_path
 
 
-def client_from_token_file(token_path, api_key, app_secret, asyncio=False,
-                           enforce_enums=True, base_url=None, share_token=True):
+@overload
+def client_from_token_file(
+        token_path: str, api_key: str, app_secret: str,
+        asyncio: Literal[False] = ..., enforce_enums: bool = ...,
+        base_url: str | None = ..., share_token: bool = ...) -> Client: ...
+@overload
+def client_from_token_file(
+        token_path: str, api_key: str, app_secret: str,
+        asyncio: Literal[True], enforce_enums: bool = ...,
+        base_url: str | None = ...,
+        share_token: bool = ...) -> AsyncClient: ...
+@overload
+def client_from_token_file(
+        token_path: str, api_key: str, app_secret: str,
+        asyncio: bool = ..., enforce_enums: bool = ...,
+        base_url: str | None = ...,
+        share_token: bool = ...) -> Client | AsyncClient: ...
+def client_from_token_file(token_path: str, api_key: str, app_secret: str,
+                           asyncio: bool = False, enforce_enums: bool = True,
+                           base_url: str | None = None,
+                           share_token: bool = True) -> Client | AsyncClient:
     '''
     Returns a session from an existing token file. The session will perform
     an auth refresh as needed. It will also update the token on disk whenever
@@ -550,9 +607,32 @@ def client_from_token_file(token_path, api_key, app_secret, asyncio=False,
 # client_from_manual_flow
 
 
-def client_from_manual_flow(api_key, app_secret, callback_url, token_path,
-                            asyncio=False, token_write_func=None,
-                            enforce_enums=True, base_url=None):
+@overload
+def client_from_manual_flow(
+        api_key: str, app_secret: str, callback_url: str, token_path: str,
+        asyncio: Literal[False] = ...,
+        token_write_func: Callable[..., Any] | None = ...,
+        enforce_enums: bool = ..., base_url: str | None = ...) -> Client: ...
+@overload
+def client_from_manual_flow(
+        api_key: str, app_secret: str, callback_url: str, token_path: str,
+        asyncio: Literal[True],
+        token_write_func: Callable[..., Any] | None = ...,
+        enforce_enums: bool = ...,
+        base_url: str | None = ...) -> AsyncClient: ...
+@overload
+def client_from_manual_flow(
+        api_key: str, app_secret: str, callback_url: str, token_path: str,
+        asyncio: bool = ...,
+        token_write_func: Callable[..., Any] | None = ...,
+        enforce_enums: bool = ...,
+        base_url: str | None = ...) -> Client | AsyncClient: ...
+def client_from_manual_flow(api_key: str, app_secret: str, callback_url: str,
+                            token_path: str, asyncio: bool = False,
+                            token_write_func: Callable[..., Any] | None = None,
+                            enforce_enums: bool = True,
+                            base_url: str | None = None
+                            ) -> Client | AsyncClient:
     '''
     Walks the user through performing an OAuth login flow by manually
     copy-pasting URLs, and returns a client wrapped around the resulting token.
@@ -619,7 +699,7 @@ def client_from_manual_flow(api_key, app_secret, callback_url, token_path,
 
     received_url = input('Redirect URL> ').strip()
 
-    token_sync = None
+    token_sync: TokenFileSync | None = None
     if token_write_func is None:
         token_sync = __make_token_file_sync(token_path)
         token_write_func = token_sync.write_token
@@ -631,9 +711,33 @@ def client_from_manual_flow(api_key, app_secret, callback_url, token_path,
 ################################################################################
 # client_from_access_functions_async
 
-async def client_from_access_functions_async(api_key, app_secret, token_read_func,
-                                             token_write_func, asyncio=False,
-                                             enforce_enums=True, base_url=None):
+@overload
+async def client_from_access_functions_async(
+        api_key: str, app_secret: str,
+        token_read_func: Callable[[], Awaitable[Any]],
+        token_write_func: Callable[..., Any],
+        asyncio: Literal[False] = ..., enforce_enums: bool = ...,
+        base_url: str | None = ...) -> Client: ...
+@overload
+async def client_from_access_functions_async(
+        api_key: str, app_secret: str,
+        token_read_func: Callable[[], Awaitable[Any]],
+        token_write_func: Callable[..., Any],
+        asyncio: Literal[True], enforce_enums: bool = ...,
+        base_url: str | None = ...) -> AsyncClient: ...
+@overload
+async def client_from_access_functions_async(
+        api_key: str, app_secret: str,
+        token_read_func: Callable[[], Awaitable[Any]],
+        token_write_func: Callable[..., Any],
+        asyncio: bool = ..., enforce_enums: bool = ...,
+        base_url: str | None = ...) -> Client | AsyncClient: ...
+async def client_from_access_functions_async(
+        api_key: str, app_secret: str,
+        token_read_func: Callable[[], Awaitable[Any]],
+        token_write_func: Callable[..., Any], asyncio: bool = False,
+        enforce_enums: bool = True,
+        base_url: str | None = None) -> Client | AsyncClient:
     '''
     Async wrapper around client_from_access_functions to be able to use an async token_read_func.
 
@@ -657,7 +761,7 @@ async def client_from_access_functions_async(api_key, app_secret, token_read_fun
     '''
     token = await token_read_func()
 
-    def token_read_func():
+    def token_read_func() -> Any:  # type: ignore[no-redef]
         return token
 
     return client_from_access_functions(
@@ -671,9 +775,31 @@ async def client_from_access_functions_async(api_key, app_secret, token_read_fun
 # client_from_access_functions
 
 
-def client_from_access_functions(api_key, app_secret, token_read_func,
-                                 token_write_func, asyncio=False,
-                                 enforce_enums=True, base_url=None):
+@overload
+def client_from_access_functions(
+        api_key: str, app_secret: str, token_read_func: Callable[[], Any],
+        token_write_func: Callable[..., Any],
+        asyncio: Literal[False] = ..., enforce_enums: bool = ...,
+        base_url: str | None = ...) -> Client: ...
+@overload
+def client_from_access_functions(
+        api_key: str, app_secret: str, token_read_func: Callable[[], Any],
+        token_write_func: Callable[..., Any],
+        asyncio: Literal[True], enforce_enums: bool = ...,
+        base_url: str | None = ...) -> AsyncClient: ...
+@overload
+def client_from_access_functions(
+        api_key: str, app_secret: str, token_read_func: Callable[[], Any],
+        token_write_func: Callable[..., Any],
+        asyncio: bool = ..., enforce_enums: bool = ...,
+        base_url: str | None = ...) -> Client | AsyncClient: ...
+def client_from_access_functions(api_key: str, app_secret: str,
+                                 token_read_func: Callable[[], Any],
+                                 token_write_func: Callable[..., Any],
+                                 asyncio: bool = False,
+                                 enforce_enums: bool = True,
+                                 base_url: str | None = None
+                                 ) -> Client | AsyncClient:
     '''
     Returns a session from an existing token file, using the accessor methods to
     read and write the token. This is an advanced method for users who do not
@@ -717,10 +843,14 @@ def client_from_access_functions(api_key, app_secret, token_read_func,
             asyncio=asyncio, enforce_enums=enforce_enums, base_url=base_url)
 
 
-def _client_from_access_functions(api_key, app_secret, token_read_func,
-                                  token_write_func, asyncio=False,
-                                  enforce_enums=True, base_url=None,
-                                  token_sync=None):
+def _client_from_access_functions(api_key: str, app_secret: str,
+                                  token_read_func: Callable[[], Any],
+                                  token_write_func: Callable[..., Any],
+                                  asyncio: bool = False,
+                                  enforce_enums: bool = True,
+                                  base_url: str | None = None,
+                                  token_sync: TokenFileSync | None = None
+                                  ) -> Client | AsyncClient:
     api_key = _clean_credential('api_key', api_key)
     app_secret = _clean_credential('app_secret', app_secret)
 
@@ -739,6 +869,7 @@ def _client_from_access_functions(api_key, app_secret, token_read_func,
 
     wrapped_token_write_func = metadata.wrapped_token_write_func()
 
+    client_class: type[Client] | type[AsyncClient]
     if asyncio:
         async def oauth_client_update_token(t, *args, **kwargs):
             wrapped_token_write_func(t, *args, **kwargs)  # pragma: no cover
@@ -774,7 +905,9 @@ def _client_from_access_functions(api_key, app_secret, token_read_func,
 AuthContext = collections.namedtuple(
         'AuthContext', ['callback_url', 'authorization_url', 'state'])
 
-def get_auth_context(api_key, callback_url, state=None, base_url=None):
+def get_auth_context(api_key: str, callback_url: str,
+                     state: str | None = None,
+                     base_url: str | None = None) -> AuthContext:
     api_key = _clean_credential('api_key', api_key)
     base_url = _resolve_base_url(base_url)
     oauth = OAuth2Client(api_key, redirect_uri=callback_url)
@@ -793,7 +926,7 @@ class InvalidRedirectURLError(ValueError):
     pass
 
 
-def __check_received_url(received_url):
+def __check_received_url(received_url: str) -> None:
     query = urllib.parse.parse_qs(urllib.parse.urlparse(received_url).query)
 
     if 'error' in query:
@@ -811,17 +944,40 @@ def __check_received_url(received_url):
                     received_url))
 
 
+@overload
 def client_from_received_url(
-        api_key, app_secret, auth_context, received_url, token_write_func,
-        asyncio=False, enforce_enums=True, base_url=None):
+        api_key: str, app_secret: str, auth_context: AuthContext,
+        received_url: str, token_write_func: Callable[..., Any],
+        asyncio: Literal[False] = ..., enforce_enums: bool = ...,
+        base_url: str | None = ...) -> Client: ...
+@overload
+def client_from_received_url(
+        api_key: str, app_secret: str, auth_context: AuthContext,
+        received_url: str, token_write_func: Callable[..., Any],
+        asyncio: Literal[True], enforce_enums: bool = ...,
+        base_url: str | None = ...) -> AsyncClient: ...
+@overload
+def client_from_received_url(
+        api_key: str, app_secret: str, auth_context: AuthContext,
+        received_url: str, token_write_func: Callable[..., Any],
+        asyncio: bool = ..., enforce_enums: bool = ...,
+        base_url: str | None = ...) -> Client | AsyncClient: ...
+def client_from_received_url(
+        api_key: str, app_secret: str, auth_context: AuthContext,
+        received_url: str, token_write_func: Callable[..., Any],
+        asyncio: bool = False, enforce_enums: bool = True,
+        base_url: str | None = None) -> Client | AsyncClient:
     return _client_from_received_url(
             api_key, app_secret, auth_context, received_url, token_write_func,
             asyncio=asyncio, enforce_enums=enforce_enums, base_url=base_url)
 
 
 def _client_from_received_url(
-        api_key, app_secret, auth_context, received_url, token_write_func,
-        asyncio=False, enforce_enums=True, base_url=None, token_sync=None):
+        api_key: str, app_secret: str, auth_context: AuthContext,
+        received_url: str, token_write_func: Callable[..., Any],
+        asyncio: bool = False, enforce_enums: bool = True,
+        base_url: str | None = None,
+        token_sync: TokenFileSync | None = None) -> Client | AsyncClient:
     api_key = _clean_credential('api_key', api_key)
     app_secret = _clean_credential('app_secret', app_secret)
     base_url = _resolve_base_url(base_url)
@@ -860,6 +1016,7 @@ def _client_from_received_url(
     # exception is the token update function: the synchronous version expects a
     # synchronous one, the asynchronous requires an async one. The
     # oauth_client_update_token variable will contain the appropriate one.
+    client_class: type[Client] | type[AsyncClient]
     if asyncio:
         async def oauth_client_update_token(t, *args, **kwargs):
             token_write_func(t, *args, **kwargs)  # pragma: no cover
@@ -896,12 +1053,12 @@ def _client_from_received_url(
 # circumstances where it gets weird like starting an ipython notebook after 
 # schwab-py is loaded.
 try:
-    _get_ipython = get_ipython
+    _get_ipython = get_ipython  # type: ignore[name-defined]
 except NameError:
     _get_ipython = None
 
 
-def __running_in_notebook():
+def __running_in_notebook() -> bool:
     # Google Colab
     if os.getenv('COLAB_RELEASE_TAG'):
         return True
@@ -915,10 +1072,39 @@ def __running_in_notebook():
     return False
 
 
-def easy_client(api_key, app_secret, callback_url, token_path, asyncio=False,
-                enforce_enums=True, max_token_age=60*60*24*6.5,
-                callback_timeout=300.0, interactive=True,
-                requested_browser=None, base_url=None, share_token=True):
+@overload
+def easy_client(
+        api_key: str, app_secret: str, callback_url: str, token_path: str,
+        asyncio: Literal[False] = ..., enforce_enums: bool = ...,
+        max_token_age: float | None = ...,
+        callback_timeout: float | None = ..., interactive: bool = ...,
+        requested_browser: str | None = ..., base_url: str | None = ...,
+        share_token: bool = ...) -> Client: ...
+@overload
+def easy_client(
+        api_key: str, app_secret: str, callback_url: str, token_path: str,
+        asyncio: Literal[True], enforce_enums: bool = ...,
+        max_token_age: float | None = ...,
+        callback_timeout: float | None = ..., interactive: bool = ...,
+        requested_browser: str | None = ..., base_url: str | None = ...,
+        share_token: bool = ...) -> AsyncClient: ...
+@overload
+def easy_client(
+        api_key: str, app_secret: str, callback_url: str, token_path: str,
+        asyncio: bool = ..., enforce_enums: bool = ...,
+        max_token_age: float | None = ...,
+        callback_timeout: float | None = ..., interactive: bool = ...,
+        requested_browser: str | None = ..., base_url: str | None = ...,
+        share_token: bool = ...) -> Client | AsyncClient: ...
+def easy_client(api_key: str, app_secret: str, callback_url: str,
+                token_path: str, asyncio: bool = False,
+                enforce_enums: bool = True,
+                max_token_age: float | None = 60*60*24*6.5,
+                callback_timeout: float | None = 300.0,
+                interactive: bool = True,
+                requested_browser: str | None = None,
+                base_url: str | None = None,
+                share_token: bool = True) -> Client | AsyncClient:
     '''
     Convenient wrapper around :func:`client_from_login_flow` and
     :func:`client_from_token_file`. If ``token_path`` exists, loads the token
@@ -977,7 +1163,7 @@ def easy_client(api_key, app_secret, callback_url, token_path, asyncio=False,
 
     logger = get_logger()
 
-    c = None
+    c: Client | AsyncClient | None = None
 
     if os.path.isfile(token_path):
         try:

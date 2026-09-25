@@ -1,9 +1,14 @@
+from __future__ import annotations
+
 import json
+
+from typing import Any
+
 from schwab.streaming import StreamJsonDecoder
 
 
 class HeuristicJsonDecoder(StreamJsonDecoder):
-    def decode_json_string(self, raw):
+    def decode_json_string(self, raw: str) -> Any:
         '''
         Attempts the following, in order:
         

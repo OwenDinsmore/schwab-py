@@ -1,8 +1,14 @@
+from __future__ import annotations
+
 from enum import Enum
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from schwab.orders.generic import OrderBuilder
 
 
 class __BaseInstrument:
-    def __init__(self, asset_type, symbol):
+    def __init__(self, asset_type: str, symbol: str) -> None:
         self._assetType = asset_type
         self._symbol = symbol
 
@@ -10,14 +16,14 @@ class __BaseInstrument:
 class EquityInstrument(__BaseInstrument):
     '''Represents an equity when creating order legs.'''
 
-    def __init__(self, symbol):
+    def __init__(self, symbol: str) -> None:
         super().__init__('EQUITY', symbol)
 
 
 class OptionInstrument(__BaseInstrument):
     '''Represents an option when creating order legs.'''
 
-    def __init__(self, symbol):
+    def __init__(self, symbol: str) -> None:
         super().__init__('OPTION', symbol)
 
 
@@ -376,7 +382,9 @@ class OrderStrategyType(Enum):
     TRIGGER = 'TRIGGER'
 
 
-def one_cancels_other(order1, order2):
+def one_cancels_other(
+        order1: OrderBuilder | dict[str, Any],
+        order2: OrderBuilder | dict[str, Any]) -> OrderBuilder:
     '''
     If one of the orders is executed, immediately cancel the other.
     '''
@@ -388,7 +396,9 @@ def one_cancels_other(order1, order2):
             .add_child_order_strategy(order2))
 
 
-def first_triggers_second(first_order, second_order):
+def first_triggers_second(
+        first_order: OrderBuilder, second_order: OrderBuilder | dict[str, Any]
+) -> OrderBuilder:
     '''
     If ``first_order`` is executed, immediately place ``second_order``.
     '''

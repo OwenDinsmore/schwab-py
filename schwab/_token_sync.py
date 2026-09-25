@@ -19,40 +19,48 @@ failing.
   used instead of refreshing again.
 '''
 
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
 import os
 
+from collections.abc import Callable
+from types import TracebackType
+from typing import Any
 
-def get_logger():
+
+def get_logger() -> logging.Logger:
     return logging.getLogger(__name__)
 
 
 if os.name == 'nt':  # pragma: no cover
     import msvcrt
 
-    def _lock_fd(fd):
+    def _lock_fd(fd: int) -> None:
         os.lseek(fd, 0, os.SEEK_SET)
         while True:
             try:
                 # LK_LOCK retries for about ten seconds before giving up, so
                 # keep trying until the lock is acquired.
-                msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
+                msvcrt.locking(  # type: ignore[attr-defined]
+                        fd, msvcrt.LK_LOCK, 1)  # type: ignore[attr-defined]
                 return
             except OSError:
                 continue
 
-    def _unlock_fd(fd):
+    def _unlock_fd(fd: int) -> None:
         os.lseek(fd, 0, os.SEEK_SET)
-        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+        msvcrt.locking(  # type: ignore[attr-defined]
+                fd, msvcrt.LK_UNLCK, 1)  # type: ignore[attr-defined]
 else:
     import fcntl
 
-    def _lock_fd(fd):
+    def _lock_fd(fd: int) -> None:
         fcntl.flock(fd, fcntl.LOCK_EX)
 
-    def _unlock_fd(fd):
+    def _unlock_fd(fd: int) -> None:
         fcntl.flock(fd, fcntl.LOCK_UN)
 
 
@@ -63,11 +71,11 @@ class FileLock:
     once.
     '''
 
-    def __init__(self, path):
+    def __init__(self, path: str) -> None:
         self.path = path
-        self._fd = None
+        self._fd: int | None = None
 
-    def acquire(self):
+    def acquire(self) -> None:
         fd = os.open(self.path, os.O_RDWR | os.O_CREAT, 0o600)
         try:
             _lock_fd(fd)
@@ -76,7 +84,7 @@ class FileLock:
             raise
         self._fd = fd
 
-    def release(self):
+    def release(self) -> None:
         fd, self._fd = self._fd, None
         if fd is None:
             return
@@ -85,14 +93,16 @@ class FileLock:
         finally:
             os.close(fd)
 
-    def __enter__(self):
+    def __enter__(self) -> FileLock:
         self.acquire()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: type[BaseException] | None,
+                 exc_val: BaseException | None,
+                 exc_tb: TracebackType | None) -> None:
         self.release()
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> FileLock:
         # Acquire in a worker thread so waiting for another process doesn't
         # block the event loop.
         loop = asyncio.get_running_loop()
@@ -106,7 +116,9 @@ class FileLock:
             raise
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, exc_type: type[BaseException] | None,
+                        exc_val: BaseException | None,
+                        exc_tb: TracebackType | None) -> None:
         self.release()
 
 
@@ -116,7 +128,8 @@ class TokenFileSync:
     processes. See the module documentation for details.
     '''
 
-    def __init__(self, token_path, write_func):
+    def __init__(self, token_path: str,
+                 write_func: Callable[..., Any]) -> None:
         '''
         :param token_path: Path of the shared token file.
         :param write_func: Function that writes a metadata-wrapped token to
@@ -126,11 +139,11 @@ class TokenFileSync:
         self.lock_path = token_path + '.lock'
         self._write_func = write_func
 
-        self._file_state = None
-        self._session = None
-        self._metadata = None
+        self._file_state: tuple[int, int, int] | None = None
+        self._session: Any = None
+        self._metadata: Any = None
 
-    def _current_file_state(self):
+    def _current_file_state(self) -> tuple[int, int, int] | None:
         try:
             st = os.stat(self.token_path)
         except OSError:
@@ -139,7 +152,7 @@ class TokenFileSync:
         # every write even if the timestamp granularity is coarse.
         return (st.st_ino, st.st_mtime_ns, st.st_size)
 
-    def read_token(self):
+    def read_token(self) -> Any:
         '''Reads the token file. Usable as a ``token_read_func``.'''
         get_logger().info('Loading token from file %s', self.token_path)
         state = self._current_file_state()
@@ -148,12 +161,12 @@ class TokenFileSync:
         self._file_state = state
         return token
 
-    def write_token(self, token, *args, **kwargs):
+    def write_token(self, token: Any, *args: Any, **kwargs: Any) -> None:
         '''Writes the token file. Usable as a ``token_write_func``.'''
         self._write_func(token, *args, **kwargs)
         self._file_state = self._current_file_state()
 
-    def attach(self, session, metadata, asyncio):
+    def attach(self, session: Any, metadata: Any, asyncio: bool) -> None:
         '''
         Hooks into the OAuth session's token refresh so that it adopts tokens
         written by other processes and refreshes under the lock.
@@ -163,8 +176,10 @@ class TokenFileSync:
 
         original = session.ensure_active_token
 
+        ensure_active_token: Callable[..., Any]
         if asyncio:
-            async def ensure_active_token(token=None):
+            async def ensure_active_token(  # type: ignore[misc]
+                    token: Any = None) -> Any:
                 self.reload_if_changed()
                 if not self._expired():
                     return True
@@ -174,7 +189,7 @@ class TokenFileSync:
                         return True
                     return await original(self._session.token)
         else:
-            def ensure_active_token(token=None):
+            def ensure_active_token(token: Any = None) -> Any:
                 self.reload_if_changed()
                 if not self._expired():
                     return True
@@ -186,10 +201,10 @@ class TokenFileSync:
 
         session.ensure_active_token = ensure_active_token
 
-    def _expired(self):
+    def _expired(self) -> bool:
         return self._session.token.is_expired(leeway=self._session.leeway)
 
-    def reload_if_changed(self):
+    def reload_if_changed(self) -> bool:
         '''
         Adopts the token in the token file if the file has changed since this
         client last read or wrote it. Returns whether a new token was adopted.

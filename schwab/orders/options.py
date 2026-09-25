@@ -1,9 +1,12 @@
+from __future__ import annotations
+
 import datetime
+import decimal
 
 from schwab.orders.generic import OrderBuilder
 
 
-def _parse_expiration_date(expiration_date):
+def _parse_expiration_date(expiration_date: str) -> datetime.date:
     date = None
     try:
         date = datetime.datetime.strptime(expiration_date, '%y%m%d')
@@ -57,8 +60,10 @@ class OptionSymbol:
 
     '''
 
-    def __init__(self, underlying_symbol, expiration_date, contract_type,
-                 strike_price_as_string):
+    def __init__(
+            self, underlying_symbol: str,
+            expiration_date: str | datetime.datetime | datetime.date,
+            contract_type: str, strike_price_as_string: str) -> None:
         self.underlying_symbol = underlying_symbol
 
         if contract_type in ('C', 'CALL'):
@@ -107,7 +112,7 @@ class OptionSymbol:
         self.strike_price = strike_price_as_string
 
     @classmethod
-    def parse_symbol(cls, symbol):
+    def parse_symbol(cls, symbol: str) -> OptionSymbol:
         '''
         Parse a string option symbol of the for ``[Underlying left justified to 6 positions][Two digit year]
         [Two digit month][Two digit day]['P' or 'C'][Strike price]``.
@@ -121,6 +126,7 @@ class OptionSymbol:
         rest = symbol[6:]
 
         # Expiration
+        expiration_date: str | datetime.date
         type_split = rest.split('P')
         if len(type_split) == 2:
             expiration_date, strike = type_split
@@ -141,7 +147,7 @@ class OptionSymbol:
 
         return OptionSymbol(underlying, expiration_date, contract_type, strike)
 
-    def build(self):
+    def build(self) -> str:
         '''
         Returns the option symbol represented by this builder.
         '''
@@ -153,7 +159,7 @@ class OptionSymbol:
         )
 
 
-def __base_builder():
+def __base_builder() -> OrderBuilder:
     from schwab.orders.common import Duration, Session
 
     return (OrderBuilder()
@@ -166,7 +172,8 @@ def __base_builder():
 
 # Buy to Open
 
-def option_buy_to_open_market(symbol, quantity):
+def option_buy_to_open_market(
+        symbol: str, quantity: int | float) -> OrderBuilder:
     '''
     Returns a pre-filled :class:`~schwab.orders.generic.OrderBuilder` for a
     buy-to-open market order.
@@ -179,7 +186,9 @@ def option_buy_to_open_market(symbol, quantity):
             .add_option_leg(OptionInstruction.BUY_TO_OPEN, symbol, quantity))
 
 
-def option_buy_to_open_limit(symbol, quantity, price):
+def option_buy_to_open_limit(
+        symbol: str, quantity: int | float,
+        price: str | decimal.Decimal | float) -> OrderBuilder:
     '''
     Returns a pre-filled :class:`~schwab.orders.generic.OrderBuilder` for a
     buy-to-open limit order.
@@ -196,7 +205,8 @@ def option_buy_to_open_limit(symbol, quantity, price):
 
 # Sell to Open
 
-def option_sell_to_open_market(symbol, quantity):
+def option_sell_to_open_market(
+        symbol: str, quantity: int | float) -> OrderBuilder:
     '''
     Returns a pre-filled :class:`~schwab.orders.generic.OrderBuilder` for a
     sell-to-open market order.
@@ -209,7 +219,9 @@ def option_sell_to_open_market(symbol, quantity):
             .add_option_leg(OptionInstruction.SELL_TO_OPEN, symbol, quantity))
 
 
-def option_sell_to_open_limit(symbol, quantity, price):
+def option_sell_to_open_limit(
+        symbol: str, quantity: int | float,
+        price: str | decimal.Decimal | float) -> OrderBuilder:
     '''
     Returns a pre-filled :class:`~schwab.orders.generic.OrderBuilder` for a
     sell-to-open limit order.
@@ -227,7 +239,8 @@ def option_sell_to_open_limit(symbol, quantity, price):
 # Buy to Close
 
 
-def option_buy_to_close_market(symbol, quantity):
+def option_buy_to_close_market(
+        symbol: str, quantity: int | float) -> OrderBuilder:
     '''
     Returns a pre-filled :class:`~schwab.orders.generic.OrderBuilder` for a
     buy-to-close market order.
@@ -240,7 +253,9 @@ def option_buy_to_close_market(symbol, quantity):
             .add_option_leg(OptionInstruction.BUY_TO_CLOSE, symbol, quantity))
 
 
-def option_buy_to_close_limit(symbol, quantity, price):
+def option_buy_to_close_limit(
+        symbol: str, quantity: int | float,
+        price: str | decimal.Decimal | float) -> OrderBuilder:
     '''
     Returns a pre-filled :class:`~schwab.orders.generic.OrderBuilder` for a
     buy-to-close limit order.
@@ -258,7 +273,8 @@ def option_buy_to_close_limit(symbol, quantity, price):
 # Sell to Close
 
 
-def option_sell_to_close_market(symbol, quantity):
+def option_sell_to_close_market(
+        symbol: str, quantity: int | float) -> OrderBuilder:
     '''
     Returns a pre-filled :class:`~schwab.orders.generic.OrderBuilder` for a
     sell-to-close market order.
@@ -271,7 +287,9 @@ def option_sell_to_close_market(symbol, quantity):
             .add_option_leg(OptionInstruction.SELL_TO_CLOSE, symbol, quantity))
 
 
-def option_sell_to_close_limit(symbol, quantity, price):
+def option_sell_to_close_limit(
+        symbol: str, quantity: int | float,
+        price: str | decimal.Decimal | float) -> OrderBuilder:
     '''
     Returns a pre-filled :class:`~schwab.orders.generic.OrderBuilder` for a
     sell-to-close limit order.
@@ -292,7 +310,8 @@ def option_sell_to_close_limit(symbol, quantity, price):
 # Bull Call
 
 def bull_call_vertical_open(
-        long_call_symbol, short_call_symbol, quantity, net_debit):
+        long_call_symbol: str, short_call_symbol: str, quantity: int | float,
+        net_debit: str | decimal.Decimal | float) -> OrderBuilder:
     '''
     Returns a pre-filled :class:`~schwab.orders.generic.OrderBuilder` that opens a
     bull call vertical position. See :ref:`vertical_spreads` for details.
@@ -313,7 +332,8 @@ def bull_call_vertical_open(
 
 
 def bull_call_vertical_close(
-        long_call_symbol, short_call_symbol, quantity, net_credit):
+        long_call_symbol: str, short_call_symbol: str, quantity: int | float,
+        net_credit: str | decimal.Decimal | float) -> OrderBuilder:
     '''
     Returns a pre-filled :class:`~schwab.orders.generic.OrderBuilder` that closes a
     bull call vertical position. See :ref:`vertical_spreads` for details.
@@ -336,7 +356,8 @@ def bull_call_vertical_close(
 # Bear Call
 
 def bear_call_vertical_open(
-        short_call_symbol, long_call_symbol, quantity, net_credit):
+        short_call_symbol: str, long_call_symbol: str, quantity: int | float,
+        net_credit: str | decimal.Decimal | float) -> OrderBuilder:
     '''
     Returns a pre-filled :class:`~schwab.orders.generic.OrderBuilder` that opens a
     bear call vertical position. See :ref:`vertical_spreads` for details.
@@ -357,7 +378,8 @@ def bear_call_vertical_open(
 
 
 def bear_call_vertical_close(
-        short_call_symbol, long_call_symbol, quantity, net_debit):
+        short_call_symbol: str, long_call_symbol: str, quantity: int | float,
+        net_debit: str | decimal.Decimal | float) -> OrderBuilder:
     '''
     Returns a pre-filled :class:`~schwab.orders.generic.OrderBuilder` that closes a
     bear call vertical position. See :ref:`vertical_spreads` for details.
@@ -380,7 +402,8 @@ def bear_call_vertical_close(
 # Bull Put
 
 def bull_put_vertical_open(
-        long_put_symbol, short_put_symbol, quantity, net_credit):
+        long_put_symbol: str, short_put_symbol: str, quantity: int | float,
+        net_credit: str | decimal.Decimal | float) -> OrderBuilder:
     '''
     Returns a pre-filled :class:`~schwab.orders.generic.OrderBuilder` that opens a
     bull put vertical position. See :ref:`vertical_spreads` for details.
@@ -401,7 +424,8 @@ def bull_put_vertical_open(
 
 
 def bull_put_vertical_close(
-        long_put_symbol, short_put_symbol, quantity, net_debit):
+        long_put_symbol: str, short_put_symbol: str, quantity: int | float,
+        net_debit: str | decimal.Decimal | float) -> OrderBuilder:
     '''
     Returns a pre-filled :class:`~schwab.orders.generic.OrderBuilder` that closes a
     bull put vertical position. See :ref:`vertical_spreads` for details.
@@ -424,7 +448,8 @@ def bull_put_vertical_close(
 # Bear Put
 
 def bear_put_vertical_open(
-        short_put_symbol, long_put_symbol, quantity, net_debit):
+        short_put_symbol: str, long_put_symbol: str, quantity: int | float,
+        net_debit: str | decimal.Decimal | float) -> OrderBuilder:
     '''
     Returns a pre-filled :class:`~schwab.orders.generic.OrderBuilder` that opens a
     bear put vertical position. See :ref:`vertical_spreads` for details.
@@ -445,7 +470,8 @@ def bear_put_vertical_open(
 
 
 def bear_put_vertical_close(
-        short_put_symbol, long_put_symbol, quantity, net_credit):
+        short_put_symbol: str, long_put_symbol: str, quantity: int | float,
+        net_credit: str | decimal.Decimal | float) -> OrderBuilder:
     '''
     Returns a pre-filled :class:`~schwab.orders.generic.OrderBuilder` that closes a
     bear put vertical position. See :ref:`vertical_spreads` for details.
@@ -465,7 +491,8 @@ def bear_put_vertical_close(
                 OptionInstruction.SELL_TO_CLOSE, long_put_symbol, quantity))
 
 def short_straddle_open(
-        short_call_symbol, short_put_symbol, quantity, net_credit):
+        short_call_symbol: str, short_put_symbol: str, quantity: int | float,
+        net_credit: str | decimal.Decimal | float) -> OrderBuilder:
     '''
     Returns a pre-filled :class:`~schwab.orders.generic.OrderBuilder` that opens a
     short straddle.
@@ -490,7 +517,8 @@ def short_straddle_open(
                 OptionInstruction.SELL_TO_OPEN, short_put_symbol, quantity))
 
 def short_straddle_close(
-        short_call_symbol, short_put_symbol, quantity, net_debit):
+        short_call_symbol: str, short_put_symbol: str, quantity: int | float,
+        net_debit: str | decimal.Decimal | float) -> OrderBuilder:
     '''
     Returns a pre-filled :class:`~schwab.orders.generic.OrderBuilder` that closes a
     short straddle.
@@ -514,7 +542,8 @@ def short_straddle_close(
                 OptionInstruction.BUY_TO_CLOSE, short_put_symbol, quantity))
 
 def long_straddle_open(
-        long_call_symbol, long_put_symbol, quantity, net_debit):
+        long_call_symbol: str, long_put_symbol: str, quantity: int | float,
+        net_debit: str | decimal.Decimal | float) -> OrderBuilder:
     '''
     Returns a pre-filled :class:`~schwab.orders.generic.OrderBuilder` that opens a
     long straddle.
@@ -538,7 +567,8 @@ def long_straddle_open(
                 OptionInstruction.BUY_TO_OPEN, long_put_symbol, quantity))
 
 def long_straddle_close(
-        long_call_symbol, long_put_symbol, quantity, net_credit):
+        long_call_symbol: str, long_put_symbol: str, quantity: int | float,
+        net_credit: str | decimal.Decimal | float) -> OrderBuilder:
     '''
     Returns a pre-filled :class:`~schwab.orders.generic.OrderBuilder` that closes a
     long straddle.
