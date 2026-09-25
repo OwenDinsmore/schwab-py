@@ -267,6 +267,20 @@ to read the documentation below to learn how much data is available.
 .. automethod:: schwab.client.Client.get_price_history_every_day
 .. automethod:: schwab.client.Client.get_price_history_every_week
 
+For intraday frequencies, Schwab returns whole days of candles, even when the
+requested range covers only part of a day. Use
+:func:`~schwab.utils.trim_candles` to keep only the candles in your range:
+
+.. code-block:: python
+
+  from schwab.utils import trim_candles
+
+  resp = client.get_price_history_every_minute(
+          '$SPX', start_datetime=start, end_datetime=end)
+  candles = trim_candles(resp.json(), start, end)
+
+.. autofunction:: schwab.utils.trim_candles
+
 For the sake of completeness, here is the documentation for the raw price 
 history endpoint, in all its complexity.
 

@@ -3,8 +3,9 @@ module.'''
 
 from __future__ import annotations
 
+import datetime
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from enum import Enum
 from typing import Any, NoReturn
 
@@ -112,6 +113,41 @@ class RefreshTokenExpiredError(OAuthError):
     only remedy is to delete the token file and log in again. Subclasses
     authlib's ``OAuthError``, which was raised in this case before.
     '''
+
+
+def trim_candles(price_history: Mapping[str, Any],
+                 start_datetime: datetime.datetime | None = None,
+                 end_datetime: datetime.datetime | None = None,
+                 ) -> list[dict[str, Any]]:
+    '''Returns the candles in a price history response that fall between
+    ``start_datetime`` and ``end_datetime``, inclusive.
+
+    For intraday frequencies, Schwab returns whole days of candles even when
+    the requested range is narrower, so this is useful after calling the
+    ``get_price_history_every_*`` methods with a range within a single day:
+
+    .. code-block:: python
+
+      resp = client.get_price_history_every_minute(
+              'AAPL', start_datetime=start, end_datetime=end)
+      candles = trim_candles(resp.json(), start, end)
+
+    :param price_history: A decoded price history response, as returned by
+                          ``resp.json()``.
+    :param start_datetime: Drop candles before this time. Naive datetimes are
+                           treated as local time, as elsewhere in the client.
+    :param end_datetime: Drop candles after this time.
+    '''
+    start_millis = (None if start_datetime is None
+                    else int(start_datetime.timestamp() * 1000))
+    end_millis = (None if end_datetime is None
+                  else int(end_datetime.timestamp() * 1000))
+
+    return [
+        candle for candle in price_history.get('candles', [])
+        if (start_millis is None or candle['datetime'] >= start_millis)
+        and (end_millis is None or candle['datetime'] <= end_millis)
+    ]
 
 
 class LazyLog:

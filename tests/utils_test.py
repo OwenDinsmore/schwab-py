@@ -1,6 +1,7 @@
+import datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock
-from schwab.utils import AccountHashMismatchException, Utils
+from schwab.utils import trim_candles, AccountHashMismatchException, Utils
 from schwab.utils import UnsuccessfulOrderException
 from schwab.utils import EnumEnforcer
 from .utils import no_duplicates, MockResponse
@@ -128,3 +129,37 @@ class UtilsTest(unittest.TestCase):
             'https://api.schwabapi.com/trader/v1/accounts/{}/orders/{}'.format(
                 self.account_hash, order_id)})
         self.assertEqual(order_id, self.utils.extract_order_id(response))
+
+
+class TrimCandlesTest(unittest.TestCase):
+
+    def candle(self, dt):
+        return {'open': 1, 'close': 1, 'datetime': int(dt.timestamp() * 1000)}
+
+    def setUp(self):
+        eastern = datetime.timezone(datetime.timedelta(hours=-4))
+        self.times = [datetime.datetime(2024, 7, 3, hour, minute, tzinfo=eastern)
+                      for hour, minute in ((9, 30), (10, 0), (10, 30), (11, 0),
+                                           (11, 30))]
+        self.history = {'symbol': 'SPY',
+                        'candles': [self.candle(t) for t in self.times]}
+
+    @no_duplicates
+    def test_trim_inclusive_bounds(self):
+        trimmed = trim_candles(self.history, self.times[1], self.times[3])
+        self.assertEqual([self.candle(t) for t in self.times[1:4]], trimmed)
+
+    @no_duplicates
+    def test_open_ended(self):
+        self.assertEqual(4, len(trim_candles(self.history, self.times[1])))
+        self.assertEqual(
+                2, len(trim_candles(self.history, end_datetime=self.times[1])))
+
+    @no_duplicates
+    def test_other_timezone(self):
+        utc_start = self.times[2].astimezone(datetime.timezone.utc)
+        self.assertEqual(3, len(trim_candles(self.history, utc_start)))
+
+    @no_duplicates
+    def test_no_candles(self):
+        self.assertEqual([], trim_candles({'empty': True}, self.times[0]))
