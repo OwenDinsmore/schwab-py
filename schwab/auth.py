@@ -424,9 +424,12 @@ def client_from_login_flow(api_key: str, app_secret: str, callback_url: str,
 
                     httpx.get(
                             'https://127.0.0.1:{}/schwab-py-internal/status'.format(
-                                callback_port), verify=False)
+                                callback_port), verify=False, timeout=2)
                 break
-            except httpx.ConnectError:
+            except httpx.TransportError:
+                # The server isn't accepting connections yet. Depending on
+                # the platform, that shows up as a refused connection or as a
+                # connection timeout.
                 pass
 
             time.sleep(0.1)

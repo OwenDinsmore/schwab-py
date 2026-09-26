@@ -58,6 +58,10 @@ Fixes
 * schwab-py uses the same HTTP library as authlib, which prefers ``httpx2``
   when it is installed (#268).
 * ``easy_client`` honors ``asyncio=True`` when run in a notebook.
+* The login flow no longer crashes with ``ConnectTimeout`` on systems where
+  connecting to its callback server before it starts times out rather than
+  being refused, as on some macOS machines. This also fixes the macOS CI
+  failures.
 * DELETE requests are logged correctly, and responses are logged with their
   actual HTTP method.
 * Removed the unused ``python-dateutil`` dependency and dead links to the

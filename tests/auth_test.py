@@ -365,6 +365,51 @@ class WriteTokenFileTest(unittest.TestCase):
             self.assertEqual({'token': 'yes'}, json.load(f))
 
 
+class LoginFlowServerStartupTest(unittest.TestCase):
+
+    def setUp(self):
+        self.tmp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp_dir.cleanup)
+        self.token_path = os.path.join(self.tmp_dir.name, 'token.json')
+
+    @no_duplicates
+    @patch('schwab.auth.Client')
+    @patch('schwab.auth.OAuth2Client', new_callable=MockOAuthClient)
+    @patch('schwab.auth.webbrowser.get', new_callable=MagicMock)
+    @patch('schwab.auth.input', MagicMock(return_value=''))
+    @patch('builtins.print', MagicMock())
+    def test_retries_when_server_probe_times_out(
+            self, mock_webbrowser_get, sync_session, client):
+        # On some platforms, connecting before the server listens times out
+        # instead of being refused. See the macOS CI failures this fixed.
+        sync_session.return_value = sync_session
+        sync_session.create_authorization_url.return_value = \
+                'https://auth.url.com', None
+        sync_session.fetch_token.return_value = {'token': 'yes'}
+        client.return_value = 'returned client'
+        mock_webbrowser_get.return_value.open.side_effect = \
+                lambda url: requests.get(
+                        'https://127.0.0.1:6969/callback?code=code',
+                        verify=False)
+
+        real_get = auth.httpx.get
+        attempts = []
+
+        def flaky_get(*args, **kwargs):
+            attempts.append(kwargs.get('timeout'))
+            if len(attempts) == 1:
+                raise auth.httpx.ConnectTimeout('timed out')
+            return real_get(*args, **kwargs)
+
+        with patch.object(auth.httpx, 'get', side_effect=flaky_get):
+            self.assertEqual('returned client', auth.client_from_login_flow(
+                    API_KEY, APP_SECRET, 'https://127.0.0.1:6969/callback',
+                    self.token_path))
+
+        self.assertGreaterEqual(len(attempts), 2)
+        self.assertEqual(2, attempts[0])
+
+
 class LoginFlowWithoutBrowserTest(unittest.TestCase):
 
     def setUp(self):
