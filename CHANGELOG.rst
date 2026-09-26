@@ -76,6 +76,9 @@ New features
   functions return ``Client`` or ``AsyncClient`` depending on ``asyncio``, and
   ``AsyncClient``'s methods are typed as coroutines, so type checkers and
   editors catch a missing or extra ``await``.
+* ``level_one_*_view()`` stream methods change the fields received for
+  existing level one subscriptions without resubscribing, using the streamer's
+  ``VIEW`` command.
 * ``StreamClient.reconnect()`` logs in again and restores all subscriptions
   after a dropped connection, and ``auto_reconnect=True`` makes
   ``handle_message()`` do so automatically, with exponential backoff.

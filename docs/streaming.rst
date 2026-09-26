@@ -437,6 +437,7 @@ Level one quotes for equities traded on NYSE, AMEX, and PACIFIC.
 .. automethod:: schwab.streaming::StreamClient.level_one_equity_subs
 .. automethod:: schwab.streaming::StreamClient.level_one_equity_unsubs
 .. automethod:: schwab.streaming::StreamClient.level_one_equity_add
+.. automethod:: schwab.streaming::StreamClient.level_one_equity_view
 .. automethod:: schwab.streaming::StreamClient.add_level_one_equity_handler
 .. autoclass:: schwab.streaming::StreamClient.LevelOneEquityFields
   :members:
@@ -456,6 +457,7 @@ available option symbols.
 .. automethod:: schwab.streaming::StreamClient.level_one_option_subs
 .. automethod:: schwab.streaming::StreamClient.level_one_option_unsubs
 .. automethod:: schwab.streaming::StreamClient.level_one_option_add
+.. automethod:: schwab.streaming::StreamClient.level_one_option_view
 .. automethod:: schwab.streaming::StreamClient.add_level_one_option_handler
 .. autoclass:: schwab.streaming::StreamClient.LevelOneOptionFields
   :members:
@@ -473,6 +475,7 @@ Level one quotes for futures.
 .. automethod:: schwab.streaming::StreamClient.level_one_futures_subs
 .. automethod:: schwab.streaming::StreamClient.level_one_futures_unsubs
 .. automethod:: schwab.streaming::StreamClient.level_one_futures_add
+.. automethod:: schwab.streaming::StreamClient.level_one_futures_view
 .. automethod:: schwab.streaming::StreamClient.add_level_one_futures_handler
 .. autoclass:: schwab.streaming::StreamClient.LevelOneFuturesFields
   :members:
@@ -490,6 +493,7 @@ Level one quotes for futures options.
 .. automethod:: schwab.streaming::StreamClient.level_one_futures_options_subs
 .. automethod:: schwab.streaming::StreamClient.level_one_futures_options_unsubs
 .. automethod:: schwab.streaming::StreamClient.level_one_futures_options_add
+.. automethod:: schwab.streaming::StreamClient.level_one_futures_options_view
 .. automethod:: schwab.streaming::StreamClient.add_level_one_futures_options_handler
 .. autoclass:: schwab.streaming::StreamClient.LevelOneFuturesOptionsFields
   :members:
@@ -507,6 +511,7 @@ Level one quotes for foreign exchange pairs.
 .. automethod:: schwab.streaming::StreamClient.level_one_forex_subs
 .. automethod:: schwab.streaming::StreamClient.level_one_forex_unsubs
 .. automethod:: schwab.streaming::StreamClient.level_one_forex_add
+.. automethod:: schwab.streaming::StreamClient.level_one_forex_view
 .. automethod:: schwab.streaming::StreamClient.add_level_one_forex_handler
 .. autoclass:: schwab.streaming::StreamClient.LevelOneForexFields
   :members:

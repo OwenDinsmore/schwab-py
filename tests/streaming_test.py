@@ -5884,6 +5884,65 @@ except ValueError:
         self.assertEqual(0, result.returncode, result.stderr)
 
     ###########################################################################
+    # VIEW
+
+    VIEW_METHODS = [
+        ('level_one_equity', 'LEVELONE_EQUITIES', 'LevelOneEquityFields'),
+        ('level_one_option', 'LEVELONE_OPTIONS', 'LevelOneOptionFields'),
+        ('level_one_futures', 'LEVELONE_FUTURES', 'LevelOneFuturesFields'),
+        ('level_one_forex', 'LEVELONE_FOREX', 'LevelOneForexFields'),
+        ('level_one_futures_options', 'LEVELONE_FUTURES_OPTIONS',
+         'LevelOneFuturesOptionsFields'),
+    ]
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_view(self, ws_connect):
+        for prefix, service, enum_name in self.VIEW_METHODS:
+            with self.subTest(service=service):
+                self.client = StreamClient(self.http_client)
+                socket = await self.login_and_get_socket(ws_connect)
+                socket.recv.side_effect = [json.dumps(
+                    self.success_response(1, service, 'VIEW'))]
+                field_enum = getattr(StreamClient, enum_name)
+                fields = [field_enum(3), field_enum(2)]
+
+                await getattr(self.client, prefix + '_view')(
+                        ['SYM1', 'SYM2'], fields)
+
+                request = self.request_from_socket_mock(socket)
+                self.assertEqual(service, request['service'])
+                self.assertEqual('VIEW', request['command'])
+                self.assertEqual({'keys': 'SYM1,SYM2', 'fields': '0,2,3'},
+                                 request['parameters'])
+                # The caller's list is left alone
+                self.assertEqual([field_enum(3), field_enum(2)], fields)
+
+    @no_duplicates
+    @patch('schwab.streaming.ws_client.connect', new_callable=AsyncMock)
+    async def test_view_fields_restored_on_reconnect(self, ws_connect):
+        socket = await self.login_and_get_socket(ws_connect)
+        socket.recv.side_effect = [
+            json.dumps(self.success_response(
+                1, 'LEVELONE_EQUITIES', 'SUBS')),
+            json.dumps(self.success_response(
+                2, 'LEVELONE_EQUITIES', 'VIEW')),
+        ]
+        await self.client.level_one_equity_subs(['AAPL'])
+        await self.client.level_one_equity_view(
+                ['AAPL'], [StreamClient.LevelOneEquityFields.BID_PRICE])
+
+        new_socket = self.new_socket(ws_connect, [
+            json.dumps(self.success_response(3, 'ADMIN', 'LOGIN')),
+            json.dumps(self.success_response(
+                4, 'LEVELONE_EQUITIES', 'SUBS')),
+        ])
+        await self.client.reconnect()
+
+        self.assertEqual({'keys': 'AAPL', 'fields': '0,1'},
+                         self.sent_requests(new_socket)[1]['parameters'])
+
+    ###########################################################################
     # Reconnecting
 
     def new_socket(self, ws_connect, recv):

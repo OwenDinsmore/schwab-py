@@ -455,6 +455,10 @@ class StreamClient(EnumEnforcer):
             sub['keys'] += [k for k in keys if k not in sub['keys']]
             if fields is not None:
                 sub['fields'] = fields
+        elif command == 'VIEW':
+            sub = self._subscriptions.get(service)
+            if sub is not None and fields is not None:
+                sub['fields'] = fields
         elif command == 'UNSUBS':
             sub = self._subscriptions.get(service)
             if sub is not None:
@@ -1109,6 +1113,26 @@ class StreamClient(EnumEnforcer):
             symbols, 'LEVELONE_EQUITIES', 'ADD',
             self.LevelOneEquityFields, fields=fields)
 
+    async def level_one_equity_view(
+            self, symbols: Iterable[str],
+            fields: Iterable[StreamClient.LevelOneEquityFields]) -> None:
+        '''
+        Change the fields received for equity symbols that are already
+        subscribed, without resubscribing. The symbol field is always
+        included.
+
+        :param symbols: Subscribed symbols whose fields to change.
+        :param fields: Iterable of :class:`LevelOneEquityFields` representing the fields to
+                       return in streaming entries from now on.
+        '''
+        # Copy, so the caller's list isn't modified
+        fields = list(fields)
+        if self.LevelOneEquityFields.SYMBOL not in fields:
+            fields.append(self.LevelOneEquityFields.SYMBOL)
+        await self._service_op(
+            symbols, 'LEVELONE_EQUITIES', 'VIEW',
+            self.LevelOneEquityFields, fields=fields)
+
     def add_level_one_equity_handler(self, handler: Handler) -> None:
         '''
         Register a function to handle level one equity quotes as they are sent.
@@ -1347,6 +1371,26 @@ class StreamClient(EnumEnforcer):
             symbols, 'LEVELONE_OPTIONS', 'ADD',
             self.LevelOneOptionFields, fields=fields)
 
+    async def level_one_option_view(
+            self, symbols: Iterable[str],
+            fields: Iterable[StreamClient.LevelOneOptionFields]) -> None:
+        '''
+        Change the fields received for option symbols that are already
+        subscribed, without resubscribing. The symbol field is always
+        included.
+
+        :param symbols: Subscribed symbols whose fields to change.
+        :param fields: Iterable of :class:`LevelOneOptionFields` representing the fields to
+                       return in streaming entries from now on.
+        '''
+        # Copy, so the caller's list isn't modified
+        fields = list(fields)
+        if self.LevelOneOptionFields.SYMBOL not in fields:
+            fields.append(self.LevelOneOptionFields.SYMBOL)
+        await self._service_op(
+            symbols, 'LEVELONE_OPTIONS', 'VIEW',
+            self.LevelOneOptionFields, fields=fields)
+
     def add_level_one_option_handler(self, handler: Handler) -> None:
         '''
         Register a function to handle level one options quotes as they are sent.
@@ -1536,6 +1580,26 @@ class StreamClient(EnumEnforcer):
             symbols, 'LEVELONE_FUTURES', 'ADD',
             self.LevelOneFuturesFields, fields=fields)
 
+    async def level_one_futures_view(
+            self, symbols: Iterable[str],
+            fields: Iterable[StreamClient.LevelOneFuturesFields]) -> None:
+        '''
+        Change the fields received for futures symbols that are already
+        subscribed, without resubscribing. The symbol field is always
+        included.
+
+        :param symbols: Subscribed symbols whose fields to change.
+        :param fields: Iterable of :class:`LevelOneFuturesFields` representing the fields to
+                       return in streaming entries from now on.
+        '''
+        # Copy, so the caller's list isn't modified
+        fields = list(fields)
+        if self.LevelOneFuturesFields.SYMBOL not in fields:
+            fields.append(self.LevelOneFuturesFields.SYMBOL)
+        await self._service_op(
+            symbols, 'LEVELONE_FUTURES', 'VIEW',
+            self.LevelOneFuturesFields, fields=fields)
+
     def add_level_one_futures_handler(self, handler: Handler) -> None:
         '''
         Register a function to handle level one futures quotes as they are sent.
@@ -1691,6 +1755,26 @@ class StreamClient(EnumEnforcer):
                 fields.append(self.LevelOneForexFields.SYMBOL)
         await self._service_op(
             symbols, 'LEVELONE_FOREX', 'ADD',
+            self.LevelOneForexFields, fields=fields)
+
+    async def level_one_forex_view(
+            self, symbols: Iterable[str],
+            fields: Iterable[StreamClient.LevelOneForexFields]) -> None:
+        '''
+        Change the fields received for forex symbols that are already
+        subscribed, without resubscribing. The symbol field is always
+        included.
+
+        :param symbols: Subscribed symbols whose fields to change.
+        :param fields: Iterable of :class:`LevelOneForexFields` representing the fields to
+                       return in streaming entries from now on.
+        '''
+        # Copy, so the caller's list isn't modified
+        fields = list(fields)
+        if self.LevelOneForexFields.SYMBOL not in fields:
+            fields.append(self.LevelOneForexFields.SYMBOL)
+        await self._service_op(
+            symbols, 'LEVELONE_FOREX', 'VIEW',
             self.LevelOneForexFields, fields=fields)
 
     def add_level_one_forex_handler(self, handler: Handler) -> None:
@@ -1854,6 +1938,28 @@ class StreamClient(EnumEnforcer):
                 fields.append(self.LevelOneFuturesOptionsFields.SYMBOL)
         await self._service_op(
             symbols, 'LEVELONE_FUTURES_OPTIONS', 'ADD',
+            self.LevelOneFuturesOptionsFields, fields=fields)
+
+    async def level_one_futures_options_view(
+            self, symbols: Iterable[str],
+            fields: Iterable[StreamClient.LevelOneFuturesOptionsFields]
+            ) -> None:
+        '''
+        Change the fields received for futures options symbols that are
+        already subscribed, without resubscribing. The symbol field is always
+        included.
+
+        :param symbols: Subscribed symbols whose fields to change.
+        :param fields: Iterable of :class:`LevelOneFuturesOptionsFields`
+                       representing the fields to return in streaming entries
+                       from now on.
+        '''
+        # Copy, so the caller's list isn't modified
+        fields = list(fields)
+        if self.LevelOneFuturesOptionsFields.SYMBOL not in fields:
+            fields.append(self.LevelOneFuturesOptionsFields.SYMBOL)
+        await self._service_op(
+            symbols, 'LEVELONE_FUTURES_OPTIONS', 'VIEW',
             self.LevelOneFuturesOptionsFields, fields=fields)
 
     def add_level_one_futures_options_handler(self, handler: Handler) -> None:
